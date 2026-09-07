@@ -1,0 +1,397 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getAuthToken } from '../lib/api/core'
+import { getAppVersion } from '../lib/api'
+import {
+  LayoutDashboard,
+  Users,
+  Zap,
+  Terminal,
+  Settings,
+  BookOpen,
+  Gamepad2,
+  Camera,
+  Bell,
+  UserCircle,
+  Github,
+  Globe,
+  Moon,
+  Sun,
+  Menu,
+  X,
+  ChevronDown,
+} from 'lucide-vue-next'
+import { useTheme } from '../composables/useTheme'
+import { useI18n } from '../composables/useI18n'
+import { lockBodyScroll, unlockBodyScroll } from '../lib/body-scroll-lock'
+import UserProfileModal from '../components/settings/UserProfileModal.vue'
+
+const route = useRoute()
+const router = useRouter()
+const { isDark, toggleTheme } = useTheme()
+const { locale, toggleLanguage, t } = useI18n()
+const isMobileMenuOpen = ref(false)
+const showProfileModal = ref(false)
+const sidebarVersion = ref('')
+
+// lg 断点（1023px）以下视为移动端：侧栏是抽屉，关闭时应同步对读屏隐藏
+const mobileQuery = window.matchMedia('(max-width: 1023px)')
+const isMobileView = ref(mobileQuery.matches)
+const onViewportChange = () => {
+  isMobileView.value = mobileQuery.matches
+}
+const sidebarHidden = computed(() => isMobileView.value && !isMobileMenuOpen.value)
+
+const loadSidebarVersion = async () => {
+  const token = getAuthToken()
+  if (!token) return
+  try {
+    const info = await getAppVersion(token)
+    sidebarVersion.value = info.version ? `v${info.version}` : ''
+  } catch {
+    sidebarVersion.value = ''
+  }
+}
+
+const goSettingsAbout = () => {
+  isMobileMenuOpen.value = false
+  router.push({ name: 'settings' })
+}
+
+const onKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && isMobileMenuOpen.value) {
+    isMobileMenuOpen.value = false
+  }
+}
+
+let menuScrollLocked = false
+watch(isMobileMenuOpen, (open) => {
+  if (open) {
+    if (!menuScrollLocked) {
+      lockBodyScroll()
+      menuScrollLocked = true
+    }
+  } else if (menuScrollLocked) {
+    unlockBodyScroll()
+    menuScrollLocked = false
+  }
+})
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  mobileQuery.addEventListener('change', onViewportChange)
+  void loadSidebarVersion()
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  mobileQuery.removeEventListener('change', onViewportChange)
+  if (menuScrollLocked) {
+    unlockBodyScroll()
+    menuScrollLocked = false
+  }
+})
+
+const navigation = [
+  { id: 'dashboard', name: 'dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+  { id: 'accounts', name: 'accounts', icon: Users, labelKey: 'nav.accounts' },
+  { id: 'tasks', name: 'tasks', icon: Zap, labelKey: 'nav.tasks' },
+  { id: 'logs', name: 'logs', icon: Terminal, labelKey: 'nav.logs' },
+  {
+    id: 'manga',
+    name: 'manga',
+    icon: BookOpen,
+    labelKey: 'nav.manga',
+    children: [
+      { name: 'manga', labelKey: 'nav.mangaTelegram' },
+      { name: 'manga-ehentai', labelKey: 'nav.mangaEhentai' },
+      { name: 'manga-hmw', labelKey: 'nav.mangaHmw' },
+    ],
+  },
+  { id: 'games', name: 'games', icon: Gamepad2, labelKey: 'nav.games' },
+  { id: 'coser', name: 'coser', icon: Camera, labelKey: 'nav.coser' },
+  { id: 'alerts', name: 'alerts', icon: Bell, labelKey: 'nav.alerts' },
+  { id: 'settings', name: 'settings', icon: Settings, labelKey: 'nav.settings' },
+]
+
+const childNames = (nav: (typeof navigation)[number]) =>
+  'children' in nav && nav.children ? nav.children.map((item) => item.name) : []
+
+const isNavActive = (nav: (typeof navigation)[number]) =>
+  route.name === nav.name || childNames(nav).includes(String(route.name || ''))
+
+const expandedNavIds = ref<Set<string>>(new Set())
+
+const isNavExpanded = (nav: (typeof navigation)[number]) => expandedNavIds.value.has(nav.id)
+
+const toggleNav = (navId: string) => {
+  const next = new Set(expandedNavIds.value)
+  if (next.has(navId)) next.delete(navId)
+  else next.add(navId)
+  expandedNavIds.value = next
+}
+
+// 直接进入二级路由（包括浏览器前进/后退）时，确保当前分组可见。
+watch(
+  () => route.name,
+  (routeName) => {
+    const activeGroup = navigation.find((nav) =>
+      childNames(nav).includes(String(routeName || '')),
+    )
+    if (!activeGroup || expandedNavIds.value.has(activeGroup.id)) return
+    expandedNavIds.value = new Set([...expandedNavIds.value, activeGroup.id])
+  },
+  { immediate: true },
+)
+
+const currentTitle = computed(() => {
+  for (const nav of navigation) {
+    const children = 'children' in nav ? nav.children : undefined
+    const child = children?.find((item) => item.name === route.name)
+    if (child) return `${t(nav.labelKey)} / ${t(child.labelKey)}`
+    if (nav.name === route.name) return t(nav.labelKey)
+  }
+  return 'TG-SignPulse'
+})
+
+// 浏览器标签页标题跟随当前页面，便于多标签切换时识别
+watch(
+  currentTitle,
+  (title) => {
+    document.title = title && title !== 'TG-SignPulse' ? `${title} - TG-SignPulse` : 'TG-SignPulse'
+  },
+  { immediate: true },
+)
+
+const openGithub = () => {
+  window.open('https://github.com/Silentely/TG-SignPulse', '_blank')
+}
+
+const handleNavClick = () => {
+  isMobileMenuOpen.value = false
+}
+</script>
+
+<template>
+  <div class="flex min-h-screen w-full overflow-x-hidden text-gray-700 dark:text-gray-300 font-sans">
+    <!-- 移动端遮罩：点击关闭侧栏 -->
+    <div
+      v-if="isMobileMenuOpen"
+      class="fixed inset-0 bg-gray-900/40 dark:bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+      aria-hidden="true"
+      @click="isMobileMenuOpen = false"
+    />
+
+    <aside 
+      class="ui-sidebar fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ease-in-out w-64"
+      :class="isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'"
+      :aria-hidden="sidebarHidden ? 'true' : undefined"
+    >
+      <div class="flex items-center h-14 px-4 border-b border-[var(--sp-border)] gap-2">
+        <div class="ui-brand-mark w-7 h-7 text-[11px] shrink-0">TG</div>
+        <div class="min-w-0 flex-1">
+          <div class="font-mono font-medium tracking-[0.18em] text-gray-900 dark:text-gray-100 text-sm leading-none">SIGNPULSE</div>
+          <div class="text-[10px] text-gray-400 mt-1 tracking-wide truncate">
+            <button
+              v-if="sidebarVersion"
+              type="button"
+              class="hover:text-sky-500 transition-colors"
+              :title="t('settings.aboutTitle')"
+              @click="goSettingsAbout"
+            >{{ sidebarVersion }}</button>
+            <span v-else>{{ t('common.brandSubtitle') }}</span>
+          </div>
+        </div>
+        <!-- 仅移动端抽屉显示关闭；提高可点区域与层级 -->
+        <button
+          type="button"
+          class="lg:hidden shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/[0.06] relative z-[60]"
+          :aria-label="t('common.close')"
+          @click.stop="isMobileMenuOpen = false"
+        >
+          <X class="w-5 h-5" stroke-width="2" />
+        </button>
+      </div>
+
+      <nav class="flex-1 py-5 flex flex-col gap-1 px-3 overflow-y-auto custom-scrollbar" :aria-label="t('nav.mainNav')">
+        <template v-for="nav in navigation" :key="nav.id">
+          <!-- 有子栏目时父级控制展开状态，具体导航仍由二级链接负责 -->
+          <template v-if="'children' in nav && nav.children?.length">
+            <button
+              type="button"
+              class="flex items-center w-full h-11 px-3 transition-colors whitespace-nowrap rounded-md text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50"
+              :class="isNavActive(nav)
+                ? 'text-gray-900 dark:text-gray-100'
+                : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+              :aria-expanded="isNavExpanded(nav)"
+              :aria-controls="`sidebar-subnav-${nav.id}`"
+              @click="toggleNav(nav.id)"
+            >
+              <component :is="nav.icon" class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" aria-hidden="true" />
+              <span class="ml-3 flex-1 text-sm font-medium">{{ t(nav.labelKey) }}</span>
+              <ChevronDown
+                class="sidebar-subnav-chevron w-4 h-4 shrink-0 opacity-60 transition-transform duration-200"
+                :class="isNavExpanded(nav) ? 'rotate-0' : '-rotate-90'"
+                stroke-width="1.75"
+                aria-hidden="true"
+              />
+            </button>
+            <Transition name="sidebar-subnav">
+              <div
+                v-if="isNavExpanded(nav)"
+                :id="`sidebar-subnav-${nav.id}`"
+                class="ml-4 mb-1 pl-3 border-l border-[var(--sp-border)] flex flex-col gap-0.5"
+              >
+                <router-link
+                  v-for="child in nav.children"
+                  :key="child.name"
+                  :to="{ name: child.name }"
+                  class="flex items-center h-9 px-2 text-[13px] rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50"
+                  :class="route.name === child.name
+                    ? 'text-sky-600 dark:text-sky-400 bg-sky-50/80 dark:bg-sky-500/10 font-medium'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+                  :aria-current="route.name === child.name ? 'page' : undefined"
+                  @click="handleNavClick"
+                >
+                  {{ t(child.labelKey) }}
+                </router-link>
+              </div>
+            </Transition>
+          </template>
+          <router-link
+            v-else
+            :to="{ name: nav.name }"
+            class="flex items-center h-10 px-3 transition-colors whitespace-nowrap rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/50"
+            :class="isNavActive(nav)
+              ? 'ui-nav-active'
+              : 'text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]'"
+            :aria-current="route.name === nav.name ? 'page' : undefined"
+            @click="handleNavClick"
+          >
+            <component :is="nav.icon" class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
+            <span class="ml-3 text-sm font-medium">{{ t(nav.labelKey) }}</span>
+          </router-link>
+        </template>
+      </nav>
+
+      <div class="border-t border-[var(--sp-border)] p-3">
+        <button
+          type="button"
+          class="flex items-center w-full h-10 px-3 transition-colors whitespace-nowrap rounded-md text-gray-500 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/[0.03]"
+          @click="showProfileModal = true; isMobileMenuOpen = false"
+        >
+          <UserCircle class="w-[18px] h-[18px] shrink-0 opacity-80" stroke-width="1.5" />
+          <span class="ml-3 text-sm font-medium">{{ t('nav.profile') }}</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="flex-1 w-full pl-0 lg:pl-64 flex flex-col min-h-screen transition-all duration-300 max-w-[100vw]">
+      <header class="ui-header-glass sticky top-0 z-30 h-14 flex items-center justify-between px-4 lg:px-8 shrink-0">
+        <div class="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            class="ui-icon-btn lg:hidden"
+            :aria-label="t('nav.openMenu')"
+            :aria-expanded="isMobileMenuOpen"
+            @click="isMobileMenuOpen = true"
+          >
+            <Menu class="w-5 h-5" />
+          </button>
+          <h1 class="text-base sm:text-lg font-medium text-gray-900 dark:text-gray-100 tracking-wide truncate">
+            {{ currentTitle }}
+          </h1>
+        </div>
+        <div class="flex items-center gap-1 sm:gap-1.5">
+          <button
+            type="button"
+            class="ui-icon-btn"
+            :title="t('common.github')"
+            :aria-label="t('common.github')"
+            @click="openGithub"
+          >
+            <Github class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            class="ui-icon-btn"
+            :title="locale === 'zh' ? t('language.switchToEn') : t('language.switchToZh')"
+            :aria-label="t('common.changeLanguage')"
+            @click="toggleLanguage"
+          >
+            <Globe class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            class="ui-icon-btn"
+            :title="isDark ? t('common.lightMode') : t('common.darkMode')"
+            :aria-label="isDark ? t('common.lightMode') : t('common.darkMode')"
+            @click="toggleTheme($event)"
+          >
+            <Moon v-if="!isDark" class="w-4 h-4" />
+            <Sun v-else class="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      <!-- 避免 overflow-x-hidden 破坏子元素 sticky；用 clip 裁切即可 -->
+      <div class="flex-1 px-4 lg:px-8 py-6 pb-12 overflow-x-clip">
+        <router-view v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
+      </div>
+
+      <UserProfileModal :isOpen="showProfileModal" @close="showProfileModal = false" />
+    </main>
+  </div>
+</template>
+
+<style>
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+</style>
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.sidebar-subnav-enter-active,
+.sidebar-subnav-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.sidebar-subnav-enter-from,
+.sidebar-subnav-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-enter-active,
+  .fade-leave-active,
+  .sidebar-subnav-enter-active,
+  .sidebar-subnav-leave-active {
+    transition: opacity 0.01ms;
+  }
+  .fade-enter-from,
+  .fade-leave-to,
+  .sidebar-subnav-enter-from,
+  .sidebar-subnav-leave-to {
+    transform: none;
+  }
+  .sidebar-subnav-chevron {
+    transition-duration: 0.01ms;
+  }
+}
+</style>

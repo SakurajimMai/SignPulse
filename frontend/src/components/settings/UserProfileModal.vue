@@ -1,0 +1,305 @@
+<script setup lang="ts">
+import { ref, watch, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import Modal from '../Modal.vue'
+import { changePassword, changeUsername, getTOTPStatus, setupTOTP, fetchTOTPQRCode, enableTOTP, disableTOTP } from '../../lib/api'
+import { getAuthToken } from '../../lib/api/core'
+import { useI18n } from '../../composables/useI18n'
+import { useToast } from '../../composables/useToast'
+import { useAuthStore } from '../../stores/auth'
+import { getLocalizedErrorMessage } from '../../lib/types'
+import { devLog } from '../../lib/devLog'
+
+const { t } = useI18n()
+const toast = useToast()
+const authStore = useAuthStore()
+
+const props = defineProps<{ isOpen: boolean }>()
+const emit = defineEmits<{ (e: 'close'): void }>()
+const router = useRouter()
+
+const activeTab = ref('username')
+const form = ref({
+  old_password: '',
+  new_password: ''
+})
+
+const usernameForm = ref({
+  new_username: '',
+  password: ''
+})
+
+const loading = ref(false)
+const error = ref('')
+const successMessage = ref('')
+
+const handleUsernameChange = async () => {
+  const token = getAuthToken()
+  if (!token) return
+
+  loading.value = true
+  error.value = ''
+  successMessage.value = ''
+  try {
+    const res = await changeUsername(token, usernameForm.value.new_username, usernameForm.value.password)
+    successMessage.value = t('profile.usernameChanged')
+    toast.success(t('profile.usernameChanged'))
+    usernameForm.value.new_username = ''
+    usernameForm.value.password = ''
+    // If a new token is returned, update it via authStore to keep state in sync
+    if (res.access_token) {
+      authStore.setToken(res.access_token)
+    }
+  } catch (e: unknown) {
+    error.value = getLocalizedErrorMessage(e, t, t('profile.changeFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+const handlePasswordChange = async () => {
+  const token = getAuthToken()
+  if (!token) return
+
+  loading.value = true
+  error.value = ''
+  successMessage.value = ''
+  try {
+    await changePassword(token, form.value.old_password, form.value.new_password)
+    successMessage.value = t('profile.passwordChanged')
+    toast.success(t('profile.passwordChanged'))
+    form.value.old_password = ''
+    form.value.new_password = ''
+  } catch (e: unknown) {
+    error.value = getLocalizedErrorMessage(e, t, t('profile.changeFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// TOTP logic
+const totpEnabled = ref(false)
+const qrUrl = ref('')
+const totpCode = ref('')
+const totpSecret = ref('')
+
+/** 回收二维码 blob URL：关闭/重新获取/卸载时调用，防止会话内累积泄漏 */
+const revokeQrUrl = () => {
+  if (qrUrl.value) {
+    try {
+      URL.revokeObjectURL(qrUrl.value)
+    } catch {
+      /* ignore */
+    }
+    qrUrl.value = ''
+  }
+}
+
+const checkTOTP = async () => {
+  revokeQrUrl()
+  const token = getAuthToken()
+  if (!token) return
+  try {
+    const res = await getTOTPStatus(token)
+    totpEnabled.value = res.enabled
+    if (!res.enabled) {
+      // Must call setup first to generate a pending secret, then fetch QR
+      const setupRes = await setupTOTP(token)
+      totpSecret.value = setupRes.secret || ''
+      qrUrl.value = await fetchTOTPQRCode(token)
+    }
+  } catch (e) {
+    devLog.error('Failed to get TOTP status', e)
+  }
+}
+
+watch(() => props.isOpen, (val) => {
+  if (val) {
+    checkTOTP()
+  } else {
+    // reset state
+    revokeQrUrl()
+    totpCode.value = ''
+    totpSecret.value = ''
+    activeTab.value = 'username'
+    error.value = ''
+    successMessage.value = ''
+  }
+})
+
+const handleEnableTOTP = async () => {
+  if (!totpCode.value) return
+  const token = getAuthToken()
+  if (!token) return
+
+  loading.value = true
+  error.value = ''
+  try {
+    await enableTOTP(token, totpCode.value)
+    successMessage.value = t('profile.totpEnableSuccess')
+    toast.success(t('profile.totpEnableSuccess'))
+    totpCode.value = ''
+    await checkTOTP()
+  } catch (e: unknown) {
+    error.value = getLocalizedErrorMessage(e, t, t('profile.verifyFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleDisableTOTP = async () => {
+  if (!totpCode.value) return
+  const token = getAuthToken()
+  if (!token) return
+
+  loading.value = true
+  error.value = ''
+  try {
+    await disableTOTP(token, totpCode.value)
+    successMessage.value = t('profile.totpDisableSuccess')
+    toast.success(t('profile.totpDisableSuccess'))
+    totpCode.value = ''
+    await checkTOTP()
+  } catch (e: unknown) {
+    error.value = getLocalizedErrorMessage(e, t, t('profile.disableFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleLogout = () => {
+  authStore.clearToken()
+  router.push('/login')
+}
+
+onUnmounted(revokeQrUrl)
+</script>
+
+<template>
+  <Modal :isOpen="isOpen" @close="$emit('close')" :title="t('profile.title')">
+    <div class="flex gap-1 mb-6 border-b border-gray-200 dark:border-gray-800/60 overflow-x-auto">
+      <button 
+        @click="activeTab = 'username'; error = ''; successMessage = ''"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'username' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
+      >{{ t('profile.changeUsername') }}</button>
+      <button 
+        @click="activeTab = 'password'; error = ''; successMessage = ''"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'password' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
+      >{{ t('profile.changePassword') }}</button>
+      <button 
+        @click="activeTab = 'totp'; error = ''; successMessage = ''"
+        class="text-sm font-medium transition-colors whitespace-nowrap px-2.5 pb-2.5 border-b-2 -mb-px"
+        :class="activeTab === 'totp' ? 'border-sky-500 text-gray-900 dark:text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-300'"
+      >{{ t('profile.totp') }}</button>
+    </div>
+
+    <!-- Messages -->
+    <div v-if="error" class="ui-alert-error mb-4">
+      {{ error }}
+    </div>
+    <div v-if="successMessage" class="mb-4 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 p-2 border border-emerald-200 dark:border-emerald-800/40">
+      {{ successMessage }}
+    </div>
+
+    <!-- Username Tab -->
+    <div v-if="activeTab === 'username'" class="space-y-4">
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('profile.newUsername') }}</label>
+        <input v-model="usernameForm.new_username" type="text" :placeholder="t('profile.newUsernamePlaceholder')" class="ui-input">
+      </div>
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('profile.currentPassword') }}</label>
+        <input v-model="usernameForm.password" type="password" :placeholder="t('profile.currentPasswordPlaceholder')" class="ui-input">
+      </div>
+      <button 
+        @click="handleUsernameChange"
+        :disabled="loading || !usernameForm.new_username || !usernameForm.password"
+        class="ui-btn-primary w-full mt-2 !py-2.5"
+      >
+        {{ loading ? t('profile.changing') : t('profile.confirmChangeUsername') }}
+      </button>
+    </div>
+
+    <!-- Password Tab -->
+    <div v-else-if="activeTab === 'password'" class="space-y-4">
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('profile.oldPassword') }}</label>
+        <input v-model="form.old_password" type="password" class="ui-input">
+      </div>
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('profile.newPassword') }}</label>
+        <input v-model="form.new_password" type="password" class="ui-input">
+      </div>
+      <button 
+        @click="handlePasswordChange"
+        :disabled="loading || !form.old_password || !form.new_password"
+        class="ui-btn-primary w-full mt-2 !py-2.5"
+      >
+        {{ loading ? t('profile.changing') : t('profile.confirmChangePassword') }}
+      </button>
+    </div>
+
+    <!-- TOTP Tab -->
+    <div v-else class="space-y-4">
+      <div v-if="totpEnabled" class="space-y-4">
+        <div class="flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-800/50">
+          <div class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
+          <p class="text-sm text-emerald-700 dark:text-emerald-400 font-medium">{{ t('profile.totpEnabled') }}</p>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('profile.totpDisableHint') }}</p>
+        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <button 
+          @click="handleDisableTOTP"
+          :disabled="loading || !totpCode"
+          class="w-full px-4 py-2 text-sm text-rose-600 dark:text-rose-500 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-800/50 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+        >
+          {{ loading ? t('settings.processing') : t('profile.disableTotp') }}
+        </button>
+      </div>
+
+      <div v-else class="space-y-4">
+        <div class="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-800/50">
+          <div class="w-2 h-2 rounded-full bg-amber-500 shrink-0"></div>
+          <p class="text-sm text-amber-700 dark:text-amber-400 font-medium">{{ t('profile.totpDisabled') }}</p>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('profile.totpScanHint') }}</p>
+        <div v-if="qrUrl" class="flex justify-center p-4 bg-white dark:bg-white mx-auto w-max border border-gray-200 dark:border-gray-300">
+          <img :src="qrUrl" alt="TOTP QR Code" class="w-36 h-36" />
+        </div>
+        <p v-else class="text-xs text-gray-400 text-center py-4">{{ t('profile.loadingQr') }}</p>
+        <div v-if="totpSecret" class="mt-2 p-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-center">
+          <p class="text-[10px] text-gray-500 mb-1">{{ t('profile.manualEntry') }}</p>
+          <code class="text-xs font-mono text-gray-900 dark:text-gray-100 select-all break-all">{{ totpSecret }}</code>
+        </div>
+        <p class="text-xs text-gray-500">{{ t('profile.totpVerifyHint') }}</p>
+        <input v-model="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" :placeholder="t('profile.totpCodePlaceholder')" maxlength="6" class="ui-input text-center font-mono tracking-widest">
+        <button 
+          @click="handleEnableTOTP"
+          :disabled="loading || !totpCode"
+          class="ui-btn-primary w-full !py-2.5"
+        >
+          {{ loading ? t('profile.verifying') : t('profile.enableTotp') }}
+        </button>
+      </div>
+    </div>
+
+    <template #footer>
+      <button 
+        type="button"
+        class="ui-btn-danger !border-transparent !px-4 !py-2"
+        @click="handleLogout"
+      >
+        {{ t('profile.logout') }}
+      </button>
+      <button 
+        type="button"
+        class="ui-btn-secondary !border-transparent !bg-transparent !px-4 !py-2"
+        @click="$emit('close')"
+      >
+        {{ t('profile.close') }}
+      </button>
+    </template>
+  </Modal>
+</template>

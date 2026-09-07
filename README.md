@@ -1,0 +1,248 @@
+<p align="center">
+  <img src="docs/public/logo.svg" width="80" height="80" alt="TG-SignPulse Logo">
+</p>
+
+<h1 align="center">TG-SignPulse</h1>
+
+
+<p align="center">
+  <strong>Telegram 多账号自动化管理面板</strong><br>
+  签到 · 消息编排 · 关键词监听 · AI 验证
+</p>
+
+<p align="center">
+  <a href="https://github.com/Silentely/TG-SignPulse/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSD--3--Clause-green" alt="License"></a>
+  <img src="https://img.shields.io/badge/python-3.10--3.13-blue" alt="Python">
+  <img src="https://img.shields.io/badge/node-22+-green" alt="Node.js">
+  <a href="https://github.com/Silentely/TG-SignPulse/pkgs/container/tg-signpulse"><img src="https://img.shields.io/badge/ghcr.io-available-purple" alt="GHCR"></a>
+  <a href="https://tg.cosr.eu.org/"><img src="https://img.shields.io/badge/docs-online-229ED9" alt="Docs"></a>
+</p>
+
+<p align="center">
+  <a href="https://tg.cosr.eu.org/"><strong>在线文档</strong></a>
+  ·
+  <a href="README_EN.md">English</a>
+  ·
+  <a href="https://tg.cosr.eu.org/guide/quick-start">快速开始</a>
+</p>
+
+---
+
+## 项目简介
+
+TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管理多个 Telegram 账号，配置自动签到任务，并让任务按固定规则或随机时间段每天自动执行。
+
+> 🤖 AI 驱动：已集成 OpenAI 兼容接口，支持识图、计算题、OCR 等自动验证流程。
+
+---
+
+## 功能概览
+
+| 模块 | 能力 |
+|------|------|
+| **账号管理** | 多账号登录（短信/二维码）、代理配置、状态检测、重新登录 |
+| **任务编排** | 定时/随机时间段/监听触发，支持有序动作序列和动作间隔 |
+| **动作类型** | 发送文本、点击按钮、发送骰子、AI 识图、AI 计算、关键词监听 |
+| **任务重试** | 每个任务可独立配置重试次数（0–99），失败后自动从断点继续 |
+| **话题支持** | 群组 Thread ID 级别的发送与回复过滤 |
+| **关键词监听** | 包含/完全匹配/正则，命中后支持 Telegram Bot、转发、Bark、自定义 URL、后续动作 |
+| **时区管理** | Web 面板可切换时区（支持 22 个常用时区），调度器自动适配 |
+| **通知推送** | 任务失败通知、账号失效通知、登录通知、关键词命中通知 |
+| **运维能力** | Docker 部署、持久化数据、健康检查、配置导入导出、日志可视化 |
+| **漫画采集** | Telegram 群组过滤、作者/标签解析、首图封面、ImgBed 上传、AnimeStream 发布 |
+
+---
+
+## 技术栈
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend          Vue 3 + Vue Router + Pinia           │
+│                    Tailwind CSS 4 + Lucide Icons         │
+│                    Vite + PWA                            │
+├─────────────────────────────────────────────────────────┤
+│  Backend           FastAPI + Uvicorn                     │
+│                    SQLAlchemy + SQLite (WAL)             │
+│                    APScheduler (AsyncIO)                 │
+│                    JWT + TOTP 2FA + bcrypt               │
+├─────────────────────────────────────────────────────────┤
+│  Telegram Engine   Pyrogram / Kurigram                   │
+│                    Session File / String 双模式          │
+├─────────────────────────────────────────────────────────┤
+│  AI Integration    OpenAI SDK (兼容接口)                 │
+│                    识图 / OCR / 计算题 / 推断点击         │
+├─────────────────────────────────────────────────────────┤
+│  Infrastructure    Docker Multi-stage Build              │
+│                    GitHub Actions CI/CD                   │
+│                    GHCR Container Registry               │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 快速开始
+
+### 前置条件
+
+- Docker 24+ 与 Docker Compose
+- 至少一个 Telegram 账号
+
+### 一条命令启动
+
+```bash
+docker run -d \
+  --name tg-signpulse \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v ./data:/data \
+  -e TZ=Asia/Shanghai \
+  -e APP_SECRET_KEY=$(openssl rand -base64 32) \
+  -e ADMIN_PASSWORD=your_strong_password \
+  ghcr.io/sakurajimmai/signpulse:latest
+```
+
+### Docker Compose
+
+```yaml
+services:
+  app:
+    image: ghcr.io/sakurajimmai/signpulse:latest
+    container_name: tg-signpulse
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # 宿主机用相对路径 ./data，不要写成 /data（系统根目录）
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: true
+    environment:
+      - TZ=Asia/Shanghai
+      - APP_SECRET_KEY=your_secret_key
+      - ADMIN_PASSWORD=your_strong_password
+```
+
+```bash
+docker compose up -d
+```
+
+### 登录面板
+
+浏览器打开 `http://服务器IP:8080`
+
+- 用户名：`admin`
+- 密码：你设置的 `ADMIN_PASSWORD`（未设置则查看 `data/.admin_bootstrap_password`）
+
+---
+
+## 项目结构
+
+```text
+TG-SignPulse/
+├── backend/            # FastAPI 后端
+│   ├── api/            #   API 路由层
+│   ├── core/           #   配置、认证、数据库
+│   ├── models/         #   SQLAlchemy 数据模型
+│   ├── services/       #   业务逻辑层
+│   │   └── manga/      #   漫画采集与发布子模块
+│   ├── scheduler/      #   APScheduler 调度器
+│   └── utils/          #   工具函数
+├── tg_signer/          # Telegram 自动化引擎
+│   ├── core/           #   签到执行核心（client 客户端生命周期 / runtime 执行器）
+│   ├── config.py       #   任务配置模型 (V1→V2→V3)
+│   └── ai_tools.py     #   AI 工具集成
+├── frontend/           # Vue 3 前端
+│   ├── src/
+│   └── vite.config.ts
+├── docker/             # Docker 入口脚本
+├── docs/               # 项目文档
+├── Dockerfile          # 多阶段构建
+├── docker-compose.yml  # Compose 编排
+└── pyproject.toml      # Python 项目配置
+```
+
+---
+
+## 文档
+
+完整文档见 **[https://tg.cosr.eu.org](https://tg.cosr.eu.org/)**，常用入口：
+
+| 入口 | 说明 |
+|------|------|
+| [快速开始](https://tg.cosr.eu.org/guide/quick-start) | 部署并创建第一个任务 |
+| [Docker 部署](https://tg.cosr.eu.org/deploy/docker) | 镜像、Compose、升级 |
+| [配置参考](https://tg.cosr.eu.org/reference/configuration) | 环境变量、数据目录 |
+| [运维手册](https://tg.cosr.eu.org/reference/ops) | 健康检查、备份、上线清单 |
+| [任务编排](https://tg.cosr.eu.org/guide/tasks) | sign-tasks、动作类型 |
+| [常见问题](https://tg.cosr.eu.org/faq) | 排障与说明 |
+
+---
+
+## 常用环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `APP_SECRET_KEY` | JWT 密钥（生产必设） | 自动生成 |
+| `ADMIN_PASSWORD` | 管理员初始密码 | 随机生成 |
+| `APP_DATA_DIR` | 容器内数据目录（宿主机请挂 `./data`，不要用系统根目录 `/data`） | `/data` |
+| `APP_DATABASE_URL` | 可选；空=SQLite，可设云 MariaDB/MySQL 或 Postgres URL | 空 |
+| `TZ` | 时区 | 容器 `Asia/Shanghai`；代码默认 `Asia/Hong_Kong` |
+| `TG_SESSION_MODE` | 会话模式 `file`/`string` | `file` |
+| `TG_GLOBAL_CONCURRENCY` | 全局并发数 | `自动（CPU核心数，上限5）` |
+| `TG_PROXY` | Telegram 全局代理 | 无 |
+
+更多配置请查看 [配置参考](https://tg.cosr.eu.org/reference/configuration)。
+
+## 漫画采集子模块
+
+SignPulse 是主应用，漫画采集只是其中一个可选模块，可在面板侧栏的「漫画」页面配置和启停。采集号直接使用 `/accounts` 里已登录的账号；漫画目录数据库独立，不会把漫画数据写进主面板库。
+
+采集器按「采集频道 → 讨论群」一一对应监听。优先配置面板里的绑定列表，或环境变量 `MANGA_SOURCE_BINDINGS`；旧的 `MANGA_SOURCE_CHATS` / `TG_SOURCE_CHATS` 仍可作为回退。默认只采集讨论群回复，过滤普通用户评论、压缩包、视频、音频和下载推广。形如 `[Ryx] 标题 #标签` 的标题会保存为「标题」，作者为 `Ryx`，标签单独保存，第一张已上传图片作为封面；下载完成后临时文件会立即删除。同一讨论帖后续分批相册会追加到已有章节，不会在约 30 页处截断。
+
+请先在 `/accounts` 添加并登录采集账号，再到漫画页选择该账号。
+
+主站发布密钥在 AnimeStream 后台生成后，填入漫画模块的 `SITE_PUBLISH_SECRET`，发布地址填入 `SITE_PUBLISH_URL`（例如 `https://你的主站/api/manga/publish`）。
+
+---
+
+## 本地开发
+
+```bash
+# 后端
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+uvicorn backend.main:app --reload --port 8080
+
+# 前端
+nvm use
+cd frontend
+npm ci
+npm run dev
+```
+
+- Python 3.10–3.13（推荐 3.12）
+- Node.js 22.23.1（以仓库 `.nvmrc` 为准，不支持跨主版本开发）
+- 不建议使用 Python 3.14+（Telegram 运行时依赖尚未兼容）
+
+---
+
+## 健康检查
+
+```bash
+curl http://127.0.0.1:8080/healthz   # 快速健康检查
+curl http://127.0.0.1:8080/readyz    # 服务就绪检查
+```
+
+---
+## 致谢
+
+本项目基于 [tg-signer](https://github.com/amchii/tg-signer) by [amchii](https://github.com/amchii) 进行重构与扩展。
+
+---
+
+## License
+
+[BSD-3-Clause](LICENSE)

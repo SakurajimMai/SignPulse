@@ -1,0 +1,58 @@
+services:
+  app:
+    build:
+      context: .
+    image: ghcr.io/sakurajimmai/signpulse:${IMAGE_TAG:-latest}
+    pull_policy: ${PULL_POLICY:-always}
+    container_name: tg-signpulse
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    mem_limit: 768m
+    cpus: 1.0
+    volumes:
+      # 宿主机必须用相对路径 ./data（相对本 compose 文件），禁止写成 /data
+      # 写成 /data:/data 会落到系统根目录，而不是项目目录
+      # 右侧 /data 只是容器内路径，须与 APP_DATA_DIR / MANGA_DATA_DIR 一致
+      - type: bind
+        source: ./data
+        target: /data
+        bind:
+          create_host_path: true
+    environment:
+      - PORT=8080
+      - APP_DATA_DIR=/data
+      - MANGA_DATA_DIR=/data
+      - TZ=Asia/Shanghai
+      - LOG_LEVEL=INFO
+      - APP_LEGACY_TASKS_READONLY=1
+      - APP_SCHEDULER_LOCK=1
+      # - APP_SECRET_KEY=replace-me
+      # - ADMIN_PASSWORD=replace-me
+      # 云 MariaDB / MySQL（不设则用 ./data/db.sqlite）。密码含特殊字符需 URL 编码。
+      # - APP_DATABASE_URL=mysql+pymysql://user:pass@host:3306/tg_signpulse?charset=utf8mb4
+      # 漫画库可指向同一实例的另一个库，或继续用 SQLite。
+      # - MANGA_DATABASE_URL=mysql+asyncmy://user:pass@host:3306/tg_manga?charset=utf8mb4
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/readyz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/__pycache__
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped

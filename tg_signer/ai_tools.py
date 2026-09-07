@@ -1,0 +1,801 @@
+import asyncio
+import base64
+import io
+import json
+import logging
+import os
+import pathlib
+import re
+import time
+from typing import TYPE_CHECKING, Any, Union
+
+import json_repair
+from typing_extensions import Optional, Required, TypedDict
+
+try:
+    from PIL import Image
+except Exception:  # pragma: no cover - Pillow is optional at runtime
+    Image = None
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI  # 在性能弱的机器上导入openai包实在有些慢
+
+from cryptography.fernet import InvalidToken
+
+from tg_signer.log_utils import safe_text_preview
+from tg_signer.security import decrypt_secret, encrypt_secret
+from tg_signer.utils import UserInput, print_to_user, read_positive_int_env
+
+
+def ai_cfg_signature(cfg: Any) -> tuple[str, str, str]:
+    """AI 配置指纹：api_key/base_url/model 三元组，用于判断配置是否变化。"""
+    return (
+        str(cfg.get("api_key") or ""),
+        str(cfg.get("base_url") or ""),
+        str(cfg.get("model") or ""),
+    )
+
+
+DEFAULT_MODEL = "gpt-5-nano"
+
+DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT = (
+    "You are a low-latency visual matcher for Telegram sign-in challenges. "
+    "Choose exactly one option whose text best matches the main object or "
+    "concept shown in the image and the question. Ignore retry warnings, "
+    "time-limit reminders, and other unrelated footer text. Return JSON only: "
+    '{"option":1}. The option value must be one of the provided indexes, '
+    "starting at 1. If JSON mode is unavailable, return only the chosen option "
+    "index or option text."
+)
+
+DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT = (
+    "You solve Telegram bot image or text challenges. Read only the actual "
+    "question and the button list. Use the image when the question refers to "
+    "the picture. Unless the question explicitly asks for multiple clicks or "
+    "building a phrase, return exactly one option. Ignore retry warnings, "
+    "time-limit reminders, and unrelated footer text. Return JSON only: "
+    '{"options":[1]}. '
+    "The options field must be a list of option indexes starting at 1. "
+    "If only one click is needed, return a one-item list. If JSON mode is "
+    "unavailable, return only the chosen option index or option text."
+)
+
+DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT = (
+    "You are a fast image classifier for a Telegram sign-in button challenge. "
+    "The image usually contains one main object on a clean background. Pick "
+    "the single button whose text best names that object. Do not explain. "
+    'Return JSON only: {"options":[1]}. '
+    "The option indexes start at 1. If JSON mode is unavailable, return only "
+    "the chosen option index or option text."
+)
+
+DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT = (
+    "You are an OCR assistant. Extract the most relevant text from the image. "
+    "Return plain text only, no markdown, no explanation."
+)
+
+DEFAULT_CALCULATE_PROBLEM_PROMPT = (
+    "你是一个**答题助手**，可以根据用户的问题给出正确的回答，只需要回复答案，不要解释，不要输出任何其他内容。"
+)
+
+
+def encode_image(image: bytes):
+    return base64.b64encode(image).decode("utf-8")
+
+
+logger = logging.getLogger("tg-signer")
+
+
+class OpenAIConfig(TypedDict, total=False):
+    api_key: Required[str]
+    base_url: Optional[str]
+    model: Optional[str]
+
+
+class OpenAIConfigManager:
+    def __init__(self, workdir: Union[str, pathlib.Path]):
+        self.workdir = pathlib.Path(workdir)
+
+    def get_config_file(self) -> pathlib.Path:
+        return self.workdir / ".openai_config.json"
+
+    def has_env_config(self):
+        return bool(os.environ.get("OPENAI_API_KEY"))
+
+    def has_config(self) -> bool:
+        return bool(self.load_config())
+
+    def load_file_config(self) -> Optional[dict]:
+        config_file = self.get_config_file()
+        if config_file.exists():
+            with open(config_file, "r", encoding="utf-8") as fp:
+                c = json.load(fp)
+            # 简单验证必需字段
+            if "api_key" in c:
+                # 解密 API key
+                try:
+                    c["api_key"] = decrypt_secret(c["api_key"])
+                except InvalidToken:
+                    logger.warning("存储的 API Key 解密失败，返回 None")
+                    return None
+                return c
+        return None
+
+    def save_config(self, api_key: str, base_url: str = None, model: str = None):
+        config_file = self.get_config_file()
+        encrypted_key = encrypt_secret(api_key)
+        config = OpenAIConfig(api_key=encrypted_key, base_url=base_url, model=model)
+        with open(config_file, "w", encoding="utf-8") as fp:
+            json.dump(config, fp, ensure_ascii=False, indent=2)
+
+    def load_config(self) -> Optional[OpenAIConfig]:
+        # 环境变量优先
+        if self.has_env_config():
+            return OpenAIConfig(
+                api_key=os.environ["OPENAI_API_KEY"],
+                base_url=os.environ.get("OPENAI_BASE_URL"),
+                model=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL),
+            )
+        return self.load_file_config()
+
+    def ask_for_config(self):
+        print_to_user("开始配置OpenAI API并保存至本地。")
+        input_ = UserInput()
+        api_key = input_("请输入 OPENAI_API_KEY: ").strip()
+        while not api_key:
+            print_to_user("API Key不能为空！")
+            api_key = input_("请输入 OPENAI_API_KEY: ").strip()
+
+        base_url = (
+            input_(
+                "请输入 OPENAI_BASE_URL (可选，直接回车使用默认OpenAI地址): "
+            ).strip()
+            or None
+        )
+        model = (
+            input_(
+                f"请输入 OPENAI_MODEL (可选，直接回车使用默认模型({DEFAULT_MODEL})): "
+            ).strip()
+            or None
+        )
+        self.save_config(api_key, base_url=base_url, model=model)
+        print_to_user("OpenAI配置已保存。")
+        return self.load_config()
+
+
+def get_openai_client(
+    api_key: str = None,
+    base_url: str = None,
+    **kwargs,
+) -> Optional["AsyncOpenAI"]:
+    from httpx import Timeout
+    from openai import AsyncOpenAI, OpenAIError
+
+    from backend.utils.outbound import openai_async_client_kwargs
+
+    # httpx 超时配置：read 超时动态跟随 AI_VISION_TIMEOUT，避免与 asyncio.wait_for 的总超时竞态。
+    # asyncio.wait_for 负责整体超时控制，httpx 超时仅作为底层安全兜底。
+    try:
+        _ai_timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+    except ValueError:
+        _ai_timeout = 15.0
+    _read_timeout = max(_ai_timeout + 15.0, 30.0)
+    kwargs.setdefault(
+        "timeout",
+        Timeout(connect=5.0, read=_read_timeout, write=10.0, pool=2.0),
+    )
+    try:
+        return AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            **openai_async_client_kwargs(**kwargs),
+        )
+    except OpenAIError:
+        return None
+
+
+class AITools:
+    _QUESTION_LINE_HINTS = (
+        "点击",
+        "选择",
+        "选出",
+        "找出",
+        "识别",
+        "图中",
+        "图片",
+        "图里",
+        "图上的",
+        "图示",
+        "image",
+        "photo",
+        "picture",
+        "shown",
+        "select",
+        "choose",
+        "click",
+    )
+
+    def __init__(self, cfg: OpenAIConfig):
+        self.client = get_openai_client(
+            api_key=cfg["api_key"], base_url=cfg.get("base_url")
+        )
+        self.base_url = cfg.get("base_url") or ""
+        self.default_model = cfg.get("model") or DEFAULT_MODEL
+
+    @staticmethod
+    def _normalize_option_text(text: Any) -> str:
+        return "".join(str(text).split()).lower()
+
+    @staticmethod
+    def _ai_timeout() -> float:
+        try:
+            timeout = float(os.environ.get("AI_VISION_TIMEOUT", "15"))
+        except ValueError:
+            return 15.0
+        return max(3.0, timeout)
+
+    @classmethod
+    def _extract_relevant_query(cls, query: str) -> str:
+        if not query:
+            return ""
+        lines = []
+        for raw_line in str(query).splitlines():
+            line = re.sub(r"\s+", " ", raw_line).strip()
+            if line:
+                lines.append(line)
+        if not lines:
+            return ""
+
+        for line in lines:
+            lowered = line.lower()
+            if any(hint in line or hint in lowered for hint in cls._QUESTION_LINE_HINTS):
+                return line[:160]
+        return lines[0][:160]
+
+    @classmethod
+    def _looks_like_single_object_choice(
+        cls, query: str, options: list[tuple[int, str]]
+    ) -> bool:
+        if not options or len(options) > 8:
+            return False
+        normalized_query = cls._extract_relevant_query(query).lower()
+        if not any(
+            keyword in normalized_query
+            for keyword in ("图", "图片", "image", "photo", "picture", "object")
+        ):
+            return False
+        short_label_count = sum(
+            1
+            for _, option_text in options
+            if 0 < len(cls._normalize_option_text(option_text)) <= 16
+        )
+        return short_label_count == len(options)
+
+    @classmethod
+    def _crop_light_border(cls, image: "Image.Image") -> "Image.Image":
+        white_threshold = read_positive_int_env(
+            "AI_VISION_WHITE_THRESHOLD", 245, 200
+        )
+        mask = image.convert("L").point(lambda px: 255 if px < white_threshold else 0)
+        bbox = mask.getbbox()
+        if not bbox or bbox == (0, 0, image.width, image.height):
+            return image
+
+        padding = max(12, min(image.size) // 32)
+        left = max(0, bbox[0] - padding)
+        top = max(0, bbox[1] - padding)
+        right = min(image.width, bbox[2] + padding)
+        bottom = min(image.height, bbox[3] + padding)
+        return image.crop((left, top, right, bottom))
+
+    @classmethod
+    def _prepare_vision_image(cls, image: bytes) -> bytes:
+        if Image is None:
+            return image
+
+        original_size = len(image)
+        try:
+            with Image.open(io.BytesIO(image)) as raw_image:
+                prepared = raw_image.convert("RGB")
+        except Exception:
+            return image
+
+        prepared = cls._crop_light_border(prepared)
+        max_edge = read_positive_int_env("AI_VISION_MAX_EDGE", 640, 224)
+        if max(prepared.size) > max_edge:
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            prepared.thumbnail((max_edge, max_edge), resampling)
+
+        quality = read_positive_int_env("AI_VISION_JPEG_QUALITY", 85, 40)
+        output = io.BytesIO()
+        prepared.save(output, format="JPEG", quality=quality, optimize=True)
+        result = output.getvalue()
+        logger.debug(
+            "AI 图片预处理 | 原始: %s bytes | 处理后: %s bytes | 尺寸: %s",
+            original_size,
+            len(result),
+            prepared.size,
+        )
+        return result
+
+    @staticmethod
+    def _format_option_lines(options: list[tuple[int, str]]) -> str:
+        return "\n".join(f"{index}. {text}" for index, text in options)
+
+    _ZHIPU_HOSTNAMES = frozenset({"open.bigmodel.cn", "api.z.ai"})
+
+    def _format_image_url(self, image: bytes) -> str:
+        """根据 API 端点格式化图片 URL。
+        Zhipu GLM 系列端点期望原始 base64，不支持 data URL 前缀。
+        使用 urlparse 精确匹配 hostname，避免子域名或 query 注入绕过。
+        """
+        encoded_image = encode_image(image)
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.base_url)
+        if parsed.hostname and parsed.hostname.lower() in self._ZHIPU_HOSTNAMES:
+            return encoded_image
+        return f"data:image/jpeg;base64,{encoded_image}"
+
+    @classmethod
+    def _coerce_option_index(cls, result: Any, options: list[tuple[int, str]]) -> int:
+        if isinstance(result, list):
+            result = next((item for item in result if item is not None), None)
+
+        if isinstance(result, dict):
+            if isinstance(result.get("options"), list) and result["options"]:
+                result = result["options"][0]
+            else:
+                for key in ("option", "index", "choice", "answer", "button", "text"):
+                    if key in result:
+                        result = result[key]
+                        break
+
+        if isinstance(result, dict):
+            logger.error(
+                "AI 返回结果中未找到选项字段 | result_type=%s keys=%s",
+                type(result).__name__,
+                list(result.keys()),
+            )
+            raise ValueError(f"AI result does not contain an option: {safe_text_preview(result, 100)}")
+
+        if isinstance(result, int):
+            return result
+
+        if isinstance(result, str):
+            stripped = result.strip()
+            if stripped.lstrip("+-").isdigit():
+                return int(stripped)
+            normalized_result = cls._normalize_option_text(stripped)
+            for index, option_text in options:
+                normalized_option = cls._normalize_option_text(option_text)
+                if normalized_result == normalized_option:
+                    return index
+            for index, option_text in options:
+                normalized_option = cls._normalize_option_text(option_text)
+                if normalized_option and normalized_option in normalized_result:
+                    return index
+
+        logger.error(
+            "AI 返回结果无法解析为选项索引 | result_type=%s result_chars=%s options_count=%s",
+            type(result).__name__,
+            len(str(result)),
+            len(options),
+        )
+        raise ValueError(f"Could not parse AI option result: {safe_text_preview(result, 100)}")
+
+    @classmethod
+    def _coerce_option_indexes(cls, result: Any, options: list[tuple[int, str]]) -> list[int]:
+        if isinstance(result, list):
+            if len(result) == 1 and isinstance(result[0], dict):
+                result = result[0]
+            else:
+                return [cls._coerce_option_index(item, options) for item in result]
+
+        if isinstance(result, dict):
+            raw_options = result.get("options")
+            if raw_options is None:
+                raw_options = result.get("option")
+            if raw_options is not None:
+                if not isinstance(raw_options, list):
+                    raw_options = [raw_options]
+                return [cls._coerce_option_index(item, options) for item in raw_options]
+
+        return [cls._coerce_option_index(result, options)]
+
+    @staticmethod
+    def _should_retry_without_json_mode(exc: Exception) -> bool:
+        text = str(exc).lower()
+        indicators = (
+            "response_format",
+            "json_object",
+            "bad_response_status_code",
+            "openai_error",
+            "unsupported",
+        )
+        return any(indicator in text for indicator in indicators)
+
+    @staticmethod
+    def _get_exception_status_code(exc: Exception) -> int | None:
+        """从异常对象或错误文本中提取 HTTP 状态码。"""
+        for attr in ("status_code", "code"):
+            value = getattr(exc, attr, None)
+            if isinstance(value, int):
+                return value
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
+
+        response = getattr(exc, "response", None)
+        value = getattr(response, "status_code", None)
+        if isinstance(value, int):
+            return value
+
+        text = str(exc)
+        for pattern in (r"Error code:\s*(\d{3})", r"['\"]code['\"]:\s*(\d{3})"):
+            match = re.search(pattern, text)
+            if match:
+                return int(match.group(1))
+        return None
+
+    @classmethod
+    def _should_retry_transient_ai_error(cls, exc: Exception) -> bool:
+        """判断 AI 视觉请求错误是否为瞬时故障（可重试）。
+        配额耗尽（RESOURCE_EXHAUSTED / free_tier）不视为瞬时故障。
+        """
+        if isinstance(exc, TimeoutError):
+            return True
+
+        text = str(exc).lower()
+        # 配额耗尽不可重试，避免无意义请求
+        quota_markers = (
+            "quota exceeded",
+            "resource_exhausted",
+            "free_tier",
+            "check your plan and billing",
+            "insufficient_quota",
+            "billing hard limit",
+            "out of quota",
+            "exceeded your current quota",
+        )
+        if any(marker in text for marker in quota_markers):
+            return False
+
+        status_code = cls._get_exception_status_code(exc)
+        if status_code in {429, 500, 502, 503, 504}:
+            return True
+
+        transient_markers = (
+            "unavailable",
+            "high demand",
+            "rate limit",
+            "rate_limit",
+            "temporarily unavailable",
+            "try again later",
+            "server error",
+            "bad gateway",
+            "gateway timeout",
+        )
+        return any(marker in text for marker in transient_markers)
+
+    @classmethod
+    def _vision_retry_attempts(cls) -> int:
+        """AI 视觉请求总尝试次数（含首次请求），默认 2。
+        例如值为 3 时表示 1 次首次请求 + 2 次重试。
+        """
+        return read_positive_int_env("AI_VISION_RETRY_ATTEMPTS", 2, 1)
+
+    @staticmethod
+    def _vision_retry_delay(attempt: int) -> float:
+        """AI 视觉请求重试延迟（秒），线性递增。"""
+        try:
+            base_delay = float(os.environ.get("AI_VISION_RETRY_DELAY", "0.6"))
+        except ValueError:
+            base_delay = 0.6
+        return max(0.0, base_delay) * attempt
+
+    async def _try_json_fallback_if_applicable(
+        self,
+        *,
+        client: "AsyncOpenAI",
+        model: str,
+        kwargs: dict,
+        original_exc: Exception,
+        attempt: int,
+        max_attempts: int,
+    ) -> tuple[Any, Optional[Exception]]:
+        """JSON mode 降级：若 provider 不支持 JSON mode，去掉 response_format 重试。
+
+        返回 `(result, None)` → 降级成功（caller 应直接 return）；
+        返回 `(None, None)` → 不适用降级（caller 应继续外层 retry）；
+        返回 `(None, fallback_exc)` → 降级失败但可重试（caller 应继续外层 retry）；
+        抛出异常 → 不可重试（caller 应直接 raise）。
+        """
+        if "response_format" not in kwargs:
+            return None, None
+        if not self._should_retry_without_json_mode(original_exc):
+            return None, None
+
+        logger.warning(
+            "AI provider 不支持 JSON mode，降级重试: %s",
+            safe_text_preview(original_exc, 200),
+        )
+        kwargs.pop("response_format", None)
+
+        _start = time.monotonic()
+        try:
+            result = await asyncio.wait_for(
+                client.chat.completions.create(**kwargs),
+                timeout=self._ai_timeout(),
+            )
+            _elapsed = (time.monotonic() - _start) * 1000
+            logger.debug(
+                f"AI API 降级完成（无 JSON 模式） | model={model} elapsed_ms={_elapsed:.0f}"
+            )
+            return result, None
+        except Exception as fallback_exc:
+            _elapsed = (time.monotonic() - _start) * 1000
+            if self._should_retry_transient_ai_error(fallback_exc) and attempt < max_attempts:
+                delay = self._vision_retry_delay(attempt)
+                logger.warning(
+                    "AI 视觉请求降级后瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                    delay, attempt, max_attempts,
+                    type(fallback_exc).__name__,
+                    safe_text_preview(fallback_exc, 200),
+                )
+                await asyncio.sleep(delay)
+                return None, fallback_exc
+            raise
+
+    async def _create_visual_completion(
+        self,
+        *,
+        client: "AsyncOpenAI",
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float,
+        max_tokens: int,
+        expect_json: bool,
+    ):
+        kwargs = {
+            "messages": messages,
+            "model": model,
+            "stream": False,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if expect_json:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        attempts = self._vision_retry_attempts()
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            _start = time.monotonic()
+            try:
+                result = await asyncio.wait_for(
+                    client.chat.completions.create(**kwargs),
+                    timeout=self._ai_timeout(),
+                )
+                _elapsed = (time.monotonic() - _start) * 1000
+                _usage = getattr(result, "usage", None)
+                _tokens = ""
+                if _usage:
+                    _tokens = f" | tokens: prompt={getattr(_usage, 'prompt_tokens', '?')} completion={getattr(_usage, 'completion_tokens', '?')}"
+                logger.debug(
+                    "AI API 调用完成 | model=%s elapsed_ms=%.0f%s",
+                    model,
+                    _elapsed,
+                    _tokens,
+                )
+                return result
+            except Exception as exc:
+                _elapsed = (time.monotonic() - _start) * 1000
+                last_error = exc
+
+                fallback_result, fallback_exc = await self._try_json_fallback_if_applicable(
+                    client=client,
+                    model=model,
+                    kwargs=kwargs,
+                    original_exc=exc,
+                    attempt=attempt,
+                    max_attempts=attempts,
+                )
+                if fallback_result is not None:
+                    return fallback_result
+
+                retry_exc = fallback_exc or exc
+                if self._should_retry_transient_ai_error(retry_exc) and attempt < attempts:
+                    delay = self._vision_retry_delay(attempt)
+                    logger.warning(
+                        "AI 视觉请求瞬时错误，%g 秒后重试 (%d/%d): %s: %s",
+                        delay, attempt, attempts,
+                        type(exc).__name__,
+                        safe_text_preview(exc, 200),
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+                raise
+
+        raise last_error
+
+    async def choose_option_by_image(
+        self,
+        image: bytes,
+        query: str,
+        options: list[tuple[int, str]],
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> int:
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_CHOOSE_OPTION_BY_IMAGE_PROMPT
+        client = client or self.client
+        model = model or self.default_model
+        image = self._prepare_vision_image(image)
+        query = self._extract_relevant_query(query) or "选择最符合图片的选项"
+        text_query = (
+            f"Question:\n{query}\n\n"
+            f"Options:\n{self._format_option_lines(options)}"
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text_query},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": self._format_image_url(image)
+                        },
+                    },
+                ],
+            },
+        ]
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=24,
+            expect_json=True,
+        )
+        message = completion.choices[0].message
+        result = json_repair.loads(message.content)
+        return self._coerce_option_index(result, options)
+
+    async def choose_options_by_image(
+        self,
+        image: bytes,
+        query: str,
+        options: list[tuple[int, str]],
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> list[int]:
+        if (system_prompt or "").strip():
+            sys_prompt = system_prompt.strip()
+        elif self._looks_like_single_object_choice(query, options):
+            sys_prompt = DEFAULT_SINGLE_OBJECT_CHOICE_PROMPT
+        else:
+            sys_prompt = DEFAULT_CHOOSE_OPTIONS_BY_IMAGE_PROMPT
+        client = client or self.client
+        model = model or self.default_model
+        image = self._prepare_vision_image(image)
+        query = self._extract_relevant_query(query) or "Choose the correct option"
+        text_query = (
+            f"Question:\n{query}\n\n"
+            f"Button options in row order:\n{self._format_option_lines(options)}"
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text_query},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": self._format_image_url(image)
+                        },
+                    },
+                ],
+            },
+        ]
+        completion = await self._create_visual_completion(
+            client=client,
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=32,
+            expect_json=True,
+        )
+        result = json_repair.loads(completion.choices[0].message.content)
+        return self._coerce_option_indexes(result, options)
+
+    async def extract_text_by_image(
+        self,
+        image: bytes,
+        query: str = "",
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> str:
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_EXTRACT_TEXT_BY_IMAGE_PROMPT
+        client = client or self.client
+        model = model or self.default_model
+        text_query = query or "Extract the key text from this image."
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text_query},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": self._format_image_url(image)
+                        },
+                    },
+                ],
+            },
+        ]
+        completion = await client.chat.completions.create(
+            messages=messages,
+            model=model,
+            stream=False,
+            temperature=temperature,
+        )
+        return (completion.choices[0].message.content or "").strip()
+
+    async def calculate_problem(
+        self,
+        query: str,
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+        system_prompt: str | None = None,
+        temperature=0.1,
+    ) -> str:
+        sys_prompt = (system_prompt or "").strip() or DEFAULT_CALCULATE_PROBLEM_PROMPT
+        model = model or self.default_model
+        client = client or self.client
+        text = f"问题是: {query}\n\n只需要给出答案，不要解释，不要输出任何其他内容。The answer is:"
+        # noinspection PyTypeChecker
+        completion = await client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": text},
+            ],
+            model=model,
+            stream=False,
+            temperature=temperature,
+        )
+        return completion.choices[0].message.content.strip()
+
+    async def get_reply(
+        self,
+        prompt: str,
+        query: str,
+        client: "AsyncOpenAI" = None,
+        model: str = None,
+    ) -> str:
+        model = model or self.default_model
+        client = client or self.client
+        messages = [
+            {
+                "role": "system",
+                "content": prompt,
+            },
+            {"role": "user", "content": f"{query}"},
+        ]
+        # noinspection PyTypeChecker
+        completion = await client.chat.completions.create(
+            messages=messages,
+            model=model,
+            stream=False,
+        )
+        message = completion.choices[0].message
+        return message.content
