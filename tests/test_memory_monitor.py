@@ -128,8 +128,8 @@ def test_repeated_above_threshold_alerts_only_once_until_reset():
 
 def test_repeat_interval_uses_monotonic_during_wall_clock_rollback(monkeypatch):
     alerts = []
-    timestamps = iter([100.0, 50.0, 40.0])
-    monotonic_timestamps = iter([10.0, 15.0, 21.0])
+    timestamps = iter([100.0, 50.0, 40.0, 30.0, 20.0, 10.0])
+    monotonic_timestamps = iter([10.0, 15.0, 21.0, 25.0, 31.0, 40.0])
     monkeypatch.setattr(
         "backend.utils.memory_monitor.time.time", lambda: next(timestamps)
     )
