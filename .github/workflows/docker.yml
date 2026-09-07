@@ -8,6 +8,7 @@ on:
       - "backend/**"
       - "tg_signer/**"
       - "tools/**"
+      - "tests/**"
       - "frontend/**"
       - "Dockerfile"
       - ".nvmrc"
