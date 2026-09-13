@@ -54,6 +54,8 @@ class MangaRuntime:
         return self.settings
 
     def status(self) -> dict[str, Any]:
+        from .storage import ftp_configured, sftp_configured
+
         settings = self.current_settings()
         task = self.worker_task
         if task and task.done() and self.worker is not None:
@@ -81,6 +83,14 @@ class MangaRuntime:
             "outbound_bot_configured": bool(settings.outbound_bot_token.strip()),
             "outbound_forward_videos": bool(settings.outbound_forward_videos),
             "imgbed_configured": bool(settings.cfbed_upload_url),
+            "ftp_configured": ftp_configured(settings),
+            "sftp_configured": sftp_configured(settings),
+            "upload_telegram": settings.upload_telegram,
+            "upload_ehentai": settings.upload_ehentai,
+            "upload_wnacg": settings.upload_wnacg,
+            "outbound_telegram": bool(settings.outbound_telegram),
+            "outbound_ehentai": bool(settings.outbound_ehentai),
+            "outbound_wnacg": bool(settings.outbound_wnacg),
             "telegram_configured": bool(account),
             "telegram_account_name": account or None,
             "source_bindings": len(settings.binding_list),
@@ -257,8 +267,10 @@ class MangaRuntime:
 
         if not split_searches(settings.ehentai_search):
             raise RuntimeError("请至少填写一条 E-Hentai 搜索词")
-        if not settings.cfbed_upload_url:
-            raise RuntimeError("请先配置图床，E-Hentai 图片要上传后再发主站")
+        from .storage import upload_configured, upload_missing_message
+
+        if not upload_configured(settings, "ehentai"):
+            raise RuntimeError(upload_missing_message(settings, "ehentai"))
         if settings.ehentai_exhentai and not (settings.ehentai_cookie or "").strip():
             raise RuntimeError("ExHentai 需要填写 cookie")
         from .ehentai.catalog import refresh_catalog
@@ -437,8 +449,10 @@ class MangaRuntime:
             logger.info("已自动打开 WNACG 持续监听")
         if not parse_category_ids(settings.wnacg_categories):
             raise RuntimeError("请至少选择一个 WNACG 分类")
-        if not settings.cfbed_upload_url:
-            raise RuntimeError("请先配置图床，WNACG 图片要上传后再发主站")
+        from .storage import upload_configured, upload_missing_message
+
+        if not upload_configured(settings, "wnacg"):
+            raise RuntimeError(upload_missing_message(settings, "wnacg"))
         self.wnacg_error = None
         worker = WnacgWorker(settings, self._telegram_client)
         self.wnacg_worker = worker

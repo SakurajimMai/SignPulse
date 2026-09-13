@@ -67,6 +67,7 @@ const saveSettings = async () => {
       wnacg_delay_seconds: Number(settings.value.wnacg_delay_seconds ?? 1),
       wnacg_gallery_delay_seconds: Number(settings.value.wnacg_gallery_delay_seconds ?? 3),
       wnacg_poll_seconds: Number(settings.value.wnacg_poll_seconds || 300),
+      upload_wnacg: settings.value.upload_wnacg || 'imgbed',
     }
     const result = await saveMangaSettings(token, payload)
     applySettings(result.settings)
@@ -96,7 +97,17 @@ onUnmounted(() => {
 })
 
 const siteOk = computed(() => Boolean(status.value?.site_publish_enabled))
-const imgbedOk = computed(() => Boolean(status.value?.imgbed_configured))
+const uploadTarget = computed(() => settings.value?.upload_wnacg || 'imgbed')
+const uploadOk = computed(() => {
+  if (uploadTarget.value === 'ftp') return Boolean(status.value?.ftp_configured)
+  if (uploadTarget.value === 'sftp') return Boolean(status.value?.sftp_configured)
+  return Boolean(status.value?.imgbed_configured)
+})
+const uploadLabel = computed(() => {
+  if (uploadTarget.value === 'ftp') return t('manga.uploadFtp')
+  if (uploadTarget.value === 'sftp') return t('manga.uploadSftp')
+  return t('manga.imgbed')
+})
 </script>
 
 <template>
@@ -122,11 +133,11 @@ const imgbedOk = computed(() => Boolean(status.value?.imgbed_configured))
 
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <div class="ui-card p-4">
-          <div class="ui-section-label">{{ t('manga.imgbed') }}</div>
-          <div class="mt-2 flex items-center gap-2 text-sm font-medium" :class="imgbedOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
-            <CheckCircle2 v-if="imgbedOk" class="w-4 h-4" />
+          <div class="ui-section-label">{{ uploadLabel }}</div>
+          <div class="mt-2 flex items-center gap-2 text-sm font-medium" :class="uploadOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
+            <CheckCircle2 v-if="uploadOk" class="w-4 h-4" />
             <XCircle v-else class="w-4 h-4" />
-            {{ imgbedOk ? t('manga.configured') : t('manga.notConfigured') }}
+            {{ uploadOk ? t('manga.configured') : t('manga.notConfigured') }}
           </div>
         </div>
         <div class="ui-card p-4">

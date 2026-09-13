@@ -12,6 +12,7 @@ from backend.utils.outbound import httpx_async_client_kwargs
 
 from .config import MangaSettings
 from .publisher import PublishedChapter
+from .storage import outbound_allows_source
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,14 @@ def preview_image_urls(image_urls: list[str], count: int) -> list[str]:
     return picked
 
 
+def publisher_enabled_for(publisher: Any, source: str) -> bool:
+    """没有 enabled_for 的替身回落到 enabled，避免旧测试 FakeChannel 直接报错。"""
+    fn = getattr(publisher, "enabled_for", None)
+    if callable(fn):
+        return bool(fn(source))
+    return bool(getattr(publisher, "enabled", False))
+
+
 class ChannelPublisher:
     def __init__(self, settings: MangaSettings, client_provider: Any, bot_api: Any | None = None):
         self.settings = settings
@@ -165,6 +174,9 @@ class ChannelPublisher:
     @property
     def enabled(self) -> bool:
         return bool(self.settings.outbound_enabled and self.settings.outbound_channel.strip())
+
+    def enabled_for(self, source: str) -> bool:
+        return outbound_allows_source(self.settings, source)
 
     @property
     def uses_bot(self) -> bool:

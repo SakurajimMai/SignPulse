@@ -49,6 +49,14 @@ export interface MangaRuntimeStatus {
   outbound_bot_configured?: boolean
   outbound_forward_videos?: boolean
   imgbed_configured: boolean
+  ftp_configured?: boolean
+  sftp_configured?: boolean
+  upload_telegram?: string
+  upload_ehentai?: string
+  upload_wnacg?: string
+  outbound_telegram?: boolean
+  outbound_ehentai?: boolean
+  outbound_wnacg?: boolean
   telegram_configured: boolean
   telegram_authorized?: boolean
   telegram_account_name?: string | null
@@ -92,6 +100,25 @@ export interface MangaSettings {
   cfbed_public_base: string
   cfbed_file_field: string
   cfbed_retry_delay_seconds: number
+  upload_telegram?: string
+  upload_ehentai?: string
+  upload_wnacg?: string
+  ftp_host?: string
+  ftp_port?: number
+  ftp_username?: string
+  ftp_password?: string | null
+  ftp_password_set?: boolean
+  ftp_remote_dir?: string
+  ftp_public_base?: string
+  ftp_tls?: boolean
+  ftp_passive?: boolean
+  sftp_host?: string
+  sftp_port?: number
+  sftp_username?: string
+  sftp_password?: string | null
+  sftp_password_set?: boolean
+  sftp_remote_dir?: string
+  sftp_public_base?: string
   site_publish_url: string
   site_publish_secret?: string | null
   site_publish_secret_set?: boolean
@@ -107,6 +134,9 @@ export interface MangaSettings {
   outbound_video_allow_keywords?: string
   outbound_video_min_seconds?: number
   outbound_video_max_seconds?: number
+  outbound_telegram?: boolean
+  outbound_ehentai?: boolean
+  outbound_wnacg?: boolean
   ehentai_enabled?: boolean
   ehentai_cookie?: string | null
   ehentai_cookie_set?: boolean

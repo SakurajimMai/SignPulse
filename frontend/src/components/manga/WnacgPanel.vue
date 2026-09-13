@@ -12,6 +12,7 @@ import {
 } from '../../lib/api'
 import { formatTimeOnly } from '../../lib/datetime'
 import HmwMangaCard from './HmwMangaCard.vue'
+import UploadTargetSelect from './UploadTargetSelect.vue'
 import { getAuthToken } from '../../lib/api/core'
 import { notifyApiError } from '../../lib/notify'
 import { getErrorMessage } from '../../lib/types'
@@ -267,6 +268,12 @@ onUnmounted(() => {
         >
           <span class="ui-switch-knob" />
         </button>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="ui-label">{{ t('manga.uploadWnacg') }}</label>
+        <UploadTargetSelect :model-value="settings.upload_wnacg || 'imgbed'" @update:model-value="emit('update', 'upload_wnacg', $event)" />
+        <p class="text-[10px] text-gray-500">{{ t('manga.uploadSourceHint') }}</p>
       </div>
 
       <div class="space-y-3">

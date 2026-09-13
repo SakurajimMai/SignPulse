@@ -11,6 +11,7 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -20,26 +21,48 @@ _logger = logging.getLogger("backend.utils.atomic_io")
 _lock = threading.RLock()
 
 
+def _dump_json_file(path: Path, data: Any) -> None:
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False, dir=path.parent
+    )
+    actual_tmp = Path(tmp.name)
+    try:
+        with tmp:
+            json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(actual_tmp, path)
+    except (OSError, TypeError, ValueError):
+        # 序列化或写入失败：清理临时文件后重抛，避免残留 .tmp 累积
+        with contextlib.suppress(OSError):
+            actual_tmp.unlink()
+        raise
+
+
 def write_json_atomic(path, data: Any) -> None:
     """原子写入 JSON：临时文件 + fsync + rename，崩溃不留下半截文件。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _lock:
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", delete=False, dir=path.parent
-        )
-        actual_tmp = Path(tmp.name)
-        try:
-            with tmp:
-                json.dump(data, tmp, ensure_ascii=False, indent=2)
-                tmp.flush()
-                os.fsync(tmp.fileno())
-            os.replace(actual_tmp, path)
-        except (OSError, TypeError, ValueError):
-            # 序列化或写入失败：清理临时文件后重抛，避免残留 .tmp 累积
-            with contextlib.suppress(OSError):
-                actual_tmp.unlink()
-            raise
+        _dump_json_file(path, data)
+
+
+def update_json_atomic(path, mutator: Callable[[Any], Any], default: Any = None) -> Any:
+    """同一把锁里读-改-写，避免两个调用者各自读完再写把对方的 key 盖掉。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        data = default
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError, TypeError, ValueError):
+                _logger.debug("读取 JSON 失败，使用默认值: %s", path)
+                data = default
+        data = mutator(data)
+        _dump_json_file(path, data)
+        return data
 
 
 def read_json_safe(path, default: Any = None) -> Any:

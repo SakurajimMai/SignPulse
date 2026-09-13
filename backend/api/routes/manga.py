@@ -70,6 +70,23 @@ class MangaSettingsRequest(BaseModel):
     cfbed_public_base: str | None = None
     cfbed_file_field: str | None = None
     cfbed_retry_delay_seconds: float | None = Field(default=None, gt=0)
+    upload_telegram: str | None = Field(default=None, max_length=16)
+    upload_ehentai: str | None = Field(default=None, max_length=16)
+    upload_wnacg: str | None = Field(default=None, max_length=16)
+    ftp_host: str | None = Field(default=None, max_length=200)
+    ftp_port: int | None = Field(default=None, ge=1, le=65535)
+    ftp_username: str | None = Field(default=None, max_length=120)
+    ftp_password: str | None = None
+    ftp_remote_dir: str | None = Field(default=None, max_length=200)
+    ftp_public_base: str | None = Field(default=None, max_length=500)
+    ftp_tls: bool | None = None
+    ftp_passive: bool | None = None
+    sftp_host: str | None = Field(default=None, max_length=200)
+    sftp_port: int | None = Field(default=None, ge=1, le=65535)
+    sftp_username: str | None = Field(default=None, max_length=120)
+    sftp_password: str | None = None
+    sftp_remote_dir: str | None = Field(default=None, max_length=200)
+    sftp_public_base: str | None = Field(default=None, max_length=500)
     site_publish_url: str | None = None
     site_publish_secret: str | None = None
     outbound_enabled: bool | None = None
@@ -83,6 +100,9 @@ class MangaSettingsRequest(BaseModel):
     outbound_video_allow_keywords: str | None = Field(default=None, max_length=4000)
     outbound_video_min_seconds: int | None = Field(default=None, ge=0, le=86400)
     outbound_video_max_seconds: int | None = Field(default=None, ge=0, le=86400)
+    outbound_telegram: bool | None = None
+    outbound_ehentai: bool | None = None
+    outbound_wnacg: bool | None = None
     ehentai_enabled: bool | None = None
     ehentai_cookie: str | None = None
     ehentai_exhentai: bool | None = None

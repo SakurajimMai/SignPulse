@@ -4,6 +4,7 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-09-13 | 漫画采集支持按源选择图床 / FTP / SFTP；运营频道转发可分别开关频道采集、E-Hentai、WNACG |
 | 2026-09-13 | 漫画采集新增 WNACG（https://www.wnacg.com）二级栏目：可多选站点分类持续监听，相册图片经共用图床写入主站；配置、告警、目录过滤与 E-Hentai 栏目对齐 |
 | 2026-08-08 | 打磨：修复 TOTP 设置二维码 blob URL 泄漏（关闭/重新获取/卸载时统一 revoke，消除会话内累积）；UserProfileModal 两处 TOTP 输入补 inputmode=numeric 与 autocomplete=one-time-code（与登录页一致，移动端数字键盘 + 短信验证码自动填充）；sign_tasks 后台清理/运行任务的 create_logged_task logger 统一为模块级 `_service_logger`；quick-start 部署文档补端口说明（镜像默认监听 8080，改端口需同步 PORT 与映射）。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |
 | 2026-08-08 | 打磨：CLI monitor 代理日志 lazy 化（消除 f-string+%s 双重格式化）并统一中文；send_text/send_dice 删除相关 6 处英文过程日志中文化（消息/骰子删除成功、等待删除等）；signer_actions 空目标文本英文日志中文化；sign_task_config_inspect 抽取共享 `_iter_chat_actions` 遍历（requires_updates/has_keyword 两函数重复结构收敛，保留 chats 缺失时保守 True 语义），补畸形结构边界测试；Dashboard 失败分类徽章补「点击查看」提示。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |

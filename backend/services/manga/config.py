@@ -29,6 +29,8 @@ SECRET_FIELDS = {
     "hmw_publisher_token",
     "hmw_s3_access_key",
     "hmw_s3_secret_key",
+    "ftp_password",
+    "sftp_password",
 }
 MASKED_SECRET = "********"
 # 单话页数上限。长篇 IF 线可达数百页；环境里常用 2000，API 必须放得下。
@@ -65,6 +67,11 @@ def _float(name: str, default: float) -> float:
         return float(raw) if raw else default
     except ValueError:
         return default
+
+
+def _upload_target(name: str, default: str = "imgbed") -> str:
+    raw = (_env(name, default=default) or default).strip().lower()
+    return raw if raw in {"imgbed", "ftp", "sftp"} else "imgbed"
 
 
 def _base_dir() -> Path:
@@ -113,6 +120,23 @@ class MangaSettings:
     cfbed_public_base: str = ""
     cfbed_file_field: str = "file"
     cfbed_retry_delay_seconds: float = 30.0
+    upload_telegram: str = "imgbed"
+    upload_ehentai: str = "imgbed"
+    upload_wnacg: str = "imgbed"
+    ftp_host: str = ""
+    ftp_port: int = 21
+    ftp_username: str = ""
+    ftp_password: str = ""
+    ftp_remote_dir: str = "manga"
+    ftp_public_base: str = ""
+    ftp_tls: bool = False
+    ftp_passive: bool = True
+    sftp_host: str = ""
+    sftp_port: int = 22
+    sftp_username: str = ""
+    sftp_password: str = ""
+    sftp_remote_dir: str = "manga"
+    sftp_public_base: str = ""
     site_publish_url: str = ""
     site_publish_secret: str = ""
     outbound_enabled: bool = False
@@ -126,6 +150,9 @@ class MangaSettings:
     outbound_video_allow_keywords: str = ""
     outbound_video_min_seconds: int = 0
     outbound_video_max_seconds: int = 0
+    outbound_telegram: bool = True
+    outbound_ehentai: bool = True
+    outbound_wnacg: bool = True
     ehentai_enabled: bool = False
     ehentai_cookie: str = ""
     ehentai_exhentai: bool = False
@@ -211,6 +238,23 @@ class MangaSettings:
             cfbed_public_base=_env("CFBED_PUBLIC_BASE").rstrip("/"),
             cfbed_file_field=_env("CFBED_FILE_FIELD", default="file"),
             cfbed_retry_delay_seconds=max(_float("CFBED_RETRY_DELAY_SECONDS", 30.0), 1.0),
+            upload_telegram=_upload_target("MANGA_UPLOAD_TELEGRAM"),
+            upload_ehentai=_upload_target("MANGA_UPLOAD_EHENTAI"),
+            upload_wnacg=_upload_target("MANGA_UPLOAD_WNACG"),
+            ftp_host=_env("MANGA_FTP_HOST"),
+            ftp_port=max(1, min(_int("MANGA_FTP_PORT", 21) or 21, 65535)),
+            ftp_username=_env("MANGA_FTP_USERNAME"),
+            ftp_password=_env("MANGA_FTP_PASSWORD"),
+            ftp_remote_dir=_env("MANGA_FTP_REMOTE_DIR", default="manga") or "manga",
+            ftp_public_base=_env("MANGA_FTP_PUBLIC_BASE").rstrip("/"),
+            ftp_tls=_bool("MANGA_FTP_TLS", False),
+            ftp_passive=_bool("MANGA_FTP_PASSIVE", True),
+            sftp_host=_env("MANGA_SFTP_HOST"),
+            sftp_port=max(1, min(_int("MANGA_SFTP_PORT", 22) or 22, 65535)),
+            sftp_username=_env("MANGA_SFTP_USERNAME"),
+            sftp_password=_env("MANGA_SFTP_PASSWORD"),
+            sftp_remote_dir=_env("MANGA_SFTP_REMOTE_DIR", default="manga") or "manga",
+            sftp_public_base=_env("MANGA_SFTP_PUBLIC_BASE").rstrip("/"),
             site_publish_url=_env("SITE_PUBLISH_URL").rstrip("/"),
             site_publish_secret=_env("SITE_PUBLISH_SECRET"),
             outbound_enabled=_bool("MANGA_OUTBOUND_ENABLED", False),
@@ -224,6 +268,9 @@ class MangaSettings:
             outbound_video_allow_keywords=_env("MANGA_OUTBOUND_VIDEO_ALLOW_KEYWORDS"),
             outbound_video_min_seconds=max(_int("MANGA_OUTBOUND_VIDEO_MIN_SECONDS", 0), 0),
             outbound_video_max_seconds=max(_int("MANGA_OUTBOUND_VIDEO_MAX_SECONDS", 0), 0),
+            outbound_telegram=_bool("MANGA_OUTBOUND_TELEGRAM", True),
+            outbound_ehentai=_bool("MANGA_OUTBOUND_EHENTAI", True),
+            outbound_wnacg=_bool("MANGA_OUTBOUND_WNACG", True),
             ehentai_enabled=_bool("MANGA_EHENTAI_ENABLED", False),
             ehentai_cookie=_env("MANGA_EHENTAI_COOKIE"),
             ehentai_exhentai=_bool("MANGA_EHENTAI_EXHENTAI", False),
@@ -386,6 +433,45 @@ def save_manga_settings(updates: dict[str, Any]) -> MangaSettings:
                 clean[name] = max(0, min(int(clean[name] or 0), 86400))
             except (TypeError, ValueError):
                 clean[name] = 0
+    for name in ("upload_telegram", "upload_ehentai", "upload_wnacg"):
+        if name in clean:
+            from backend.services.manga.storage import normalize_upload_target
+
+            clean[name] = normalize_upload_target(clean[name])
+    if "ftp_host" in clean:
+        clean["ftp_host"] = str(clean["ftp_host"] or "").strip()[:200]
+    if "ftp_username" in clean:
+        clean["ftp_username"] = str(clean["ftp_username"] or "").strip()[:120]
+    if "ftp_password" in clean:
+        clean["ftp_password"] = str(clean["ftp_password"] or "")
+    if "ftp_remote_dir" in clean:
+        from backend.services.manga.storage import normalize_remote_dir
+
+        clean["ftp_remote_dir"] = normalize_remote_dir(clean["ftp_remote_dir"])
+    if "ftp_public_base" in clean:
+        clean["ftp_public_base"] = str(clean["ftp_public_base"] or "").strip().rstrip("/")
+    if "ftp_port" in clean:
+        try:
+            clean["ftp_port"] = max(1, min(int(clean["ftp_port"] or 21), 65535))
+        except (TypeError, ValueError):
+            clean["ftp_port"] = 21
+    if "sftp_host" in clean:
+        clean["sftp_host"] = str(clean["sftp_host"] or "").strip()[:200]
+    if "sftp_username" in clean:
+        clean["sftp_username"] = str(clean["sftp_username"] or "").strip()[:120]
+    if "sftp_password" in clean:
+        clean["sftp_password"] = str(clean["sftp_password"] or "")
+    if "sftp_remote_dir" in clean:
+        from backend.services.manga.storage import normalize_remote_dir
+
+        clean["sftp_remote_dir"] = normalize_remote_dir(clean["sftp_remote_dir"])
+    if "sftp_public_base" in clean:
+        clean["sftp_public_base"] = str(clean["sftp_public_base"] or "").strip().rstrip("/")
+    if "sftp_port" in clean:
+        try:
+            clean["sftp_port"] = max(1, min(int(clean["sftp_port"] or 22), 65535))
+        except (TypeError, ValueError):
+            clean["sftp_port"] = 22
     if "ehentai_search" in clean:
         clean["ehentai_search"] = str(clean["ehentai_search"] or "")[:4000]
     if "ehentai_cats" in clean:

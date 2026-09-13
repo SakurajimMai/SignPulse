@@ -13,6 +13,7 @@ import {
 import { formatTimeOnly } from '../../lib/datetime'
 import HmwMangaCard from './HmwMangaCard.vue'
 import SecretInput from '../SecretInput.vue'
+import UploadTargetSelect from './UploadTargetSelect.vue'
 import { getAuthToken } from '../../lib/api/core'
 import { notifyApiError } from '../../lib/notify'
 import { getErrorMessage } from '../../lib/types'
@@ -283,6 +284,12 @@ onUnmounted(() => {
       >
         <span class="ui-switch-knob" />
       </button>
+    </div>
+
+    <div class="space-y-1.5">
+      <label class="ui-label">{{ t('manga.uploadEhentai') }}</label>
+      <UploadTargetSelect :model-value="settings.upload_ehentai || 'imgbed'" @update:model-value="emit('update', 'upload_ehentai', $event)" />
+      <p class="text-[10px] text-gray-500">{{ t('manga.uploadSourceHint') }}</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-4">

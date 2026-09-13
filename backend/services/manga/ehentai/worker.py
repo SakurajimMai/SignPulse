@@ -13,10 +13,10 @@ from backend.services.alerts import schedule_alert
 from backend.services.manga.channel_publish import (
     ChannelPublisher,
     can_publish_outbound,
+    publisher_enabled_for,
 )
 from backend.services.manga.config import MangaSettings
 from backend.services.manga.db import Chapter, Manga, get_session_factory
-from backend.services.manga.imgbed import ImgBedClient
 from backend.services.manga.publisher import (
     PublishedChapter,
     _find_chapter_by_source_key,
@@ -26,6 +26,11 @@ from backend.services.manga.publisher import (
     read_outbound_state,
 )
 from backend.services.manga.site_publish import SitePublisher
+from backend.services.manga.storage import (
+    MediaStore,
+    upload_configured,
+    upload_missing_message,
+)
 
 from .client import EhentaiClient, EhentaiError, ShowpageMissing
 from .parser import GalleryMeta, parse_gallery_ref, prefer_showpage_url, split_searches
@@ -68,7 +73,8 @@ def poll_seconds(settings: MangaSettings) -> float:
 class EhentaiWorker:
     def __init__(self, settings: MangaSettings, client_provider: Any | None = None):
         self.settings = settings
-        self.imgbed = ImgBedClient(settings)
+        self.store = MediaStore(settings, "ehentai")
+        self.imgbed = self.store
         self.site = SitePublisher(settings)
         self.channel = ChannelPublisher(settings, client_provider or (lambda: None))
         self._stopped = asyncio.Event()
@@ -134,8 +140,8 @@ class EhentaiWorker:
         cookie = (settings.ehentai_cookie or "").strip()
         if not cookie and settings.ehentai_exhentai:
             raise EhentaiError("ExHentai 需要填写 cookie")
-        if not settings.cfbed_upload_url:
-            raise EhentaiError("请先配置图床，E-Hentai 图片要先上传再发主站")
+        if not upload_configured(settings, "ehentai"):
+            raise EhentaiError(upload_missing_message(settings, "ehentai"))
         queries = split_searches(settings.ehentai_search)
         if not queries:
             raise EhentaiError("请至少填写一条搜索词，例如：female:NTR language:Chinese")
@@ -326,6 +332,7 @@ class EhentaiWorker:
         assert self._http is not None
         settings = self.settings
         existing_pages = await self._existing_page_count(ref.source_key)
+        self.store.remember_group(ref.source_key, await self._existing_image_urls(ref.source_key))
         max_pages = max(int(settings.ehentai_max_pages or 400), 1)
         meta = await self._http.fetch_gallery(ref)
         title = meta.title
@@ -452,15 +459,17 @@ class EhentaiWorker:
                 continue
             stored += 1
             try:
-                uploaded = await self.imgbed.upload_bytes(
-                    data, filename=f"eh{ref.gid}-{stored:03d}.jpg"
+                uploaded = await self.store.upload_bytes(
+                    data,
+                    filename=f"eh{ref.gid}-{stored:03d}.jpg",
+                    group_key=ref.source_key,
                 )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 raise _RoutedGalleryError(
                     "manga_imgbed_upload_fail",
-                    "E-Hentai 图床上传失败",
+                    "E-Hentai 图片上传失败",
                     exc,
                 ) from exc
             batch.append(uploaded)
@@ -509,7 +518,7 @@ class EhentaiWorker:
         published: PublishedChapter,
         site_urls: list[str],
     ) -> None:
-        if not self.channel.enabled:
+        if not publisher_enabled_for(self.channel, "ehentai"):
             return
         album_sent, _sent = published.album_sent, published.sent_video_urls
         if album_sent:
@@ -597,6 +606,14 @@ class EhentaiWorker:
             if chapter is None:
                 return 0
             return int(chapter.page_count or 0)
+
+    async def _existing_image_urls(self, source_key: str) -> list[str]:
+        factory = get_session_factory()
+        async with factory() as session:
+            chapter = await _find_chapter_by_source_key(session, source_key)
+            if chapter is None:
+                return []
+            return await list_chapter_image_urls(session, chapter.id)
 
     async def _card_fields(self, source_key: str) -> dict[str, Any]:
         factory = get_session_factory()

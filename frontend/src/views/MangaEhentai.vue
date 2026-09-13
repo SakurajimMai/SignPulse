@@ -92,6 +92,7 @@ const saveSettings = async () => {
       ehentai_poll_seconds: Number(settings.value.ehentai_poll_seconds || 300),
       ehentai_translation_url: settings.value.ehentai_translation_url || '',
       ehentai_translation_auto: settings.value.ehentai_translation_auto !== false,
+      upload_ehentai: settings.value.upload_ehentai || 'imgbed',
     }
     if (cookieDraft.value.trim()) payload.ehentai_cookie = cookieDraft.value.trim()
     const result = await saveMangaSettings(token, payload)
@@ -122,7 +123,17 @@ onUnmounted(() => {
 })
 
 const siteOk = computed(() => Boolean(status.value?.site_publish_enabled))
-const imgbedOk = computed(() => Boolean(status.value?.imgbed_configured))
+const uploadTarget = computed(() => settings.value?.upload_ehentai || 'imgbed')
+const uploadOk = computed(() => {
+  if (uploadTarget.value === 'ftp') return Boolean(status.value?.ftp_configured)
+  if (uploadTarget.value === 'sftp') return Boolean(status.value?.sftp_configured)
+  return Boolean(status.value?.imgbed_configured)
+})
+const uploadLabel = computed(() => {
+  if (uploadTarget.value === 'ftp') return t('manga.uploadFtp')
+  if (uploadTarget.value === 'sftp') return t('manga.uploadSftp')
+  return t('manga.imgbed')
+})
 </script>
 
 <template>
@@ -148,11 +159,11 @@ const imgbedOk = computed(() => Boolean(status.value?.imgbed_configured))
 
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <div class="ui-card p-4">
-          <div class="ui-section-label">{{ t('manga.imgbed') }}</div>
-          <div class="mt-2 flex items-center gap-2 text-sm font-medium" :class="imgbedOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
-            <CheckCircle2 v-if="imgbedOk" class="w-4 h-4" />
+          <div class="ui-section-label">{{ uploadLabel }}</div>
+          <div class="mt-2 flex items-center gap-2 text-sm font-medium" :class="uploadOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">
+            <CheckCircle2 v-if="uploadOk" class="w-4 h-4" />
             <XCircle v-else class="w-4 h-4" />
-            {{ imgbedOk ? t('manga.configured') : t('manga.notConfigured') }}
+            {{ uploadOk ? t('manga.configured') : t('manga.notConfigured') }}
           </div>
         </div>
         <div class="ui-card p-4">

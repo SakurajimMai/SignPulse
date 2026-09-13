@@ -34,7 +34,12 @@ from .assembler import (
     bucket_idle_seconds,
     collapse_reply_root,
 )
-from .channel_publish import ChannelPublisher, can_publish_outbound, plan_outbound_post
+from .channel_publish import (
+    ChannelPublisher,
+    can_publish_outbound,
+    plan_outbound_post,
+    publisher_enabled_for,
+)
 from .config import MangaSettings
 from .db import Chapter, Page, get_session_factory
 from .filters import (
@@ -51,7 +56,6 @@ from .filters import (
     should_skip_user_comment,
     video_duration_seconds,
 )
-from .imgbed import ImgBedClient
 from .peers import same_telegram_peer, telegram_raw_peer_id
 from .publisher import (
     PublishedChapter,
@@ -70,6 +74,7 @@ from .publisher import (
 )
 from .site_publish import SitePublisher
 from .sources import SourceBinding
+from .storage import MediaStore, upload_configured, upload_missing_message
 from .telegraph import (
     TelegraphClient,
     chapter_images_usable,
@@ -184,7 +189,8 @@ class TelegramMangaWorker:
     def __init__(self, settings: MangaSettings):
         self.settings = settings
         self.client: Any | None = None
-        self.imgbed = ImgBedClient(settings)
+        self.store = MediaStore(settings, "telegram")
+        self.imgbed = self.store
         self.site = SitePublisher(settings)
         self.telegraph = TelegraphClient()
         self.channel = ChannelPublisher(settings, lambda: self.client)
@@ -229,6 +235,8 @@ class TelegramMangaWorker:
             )
         if not any(item.ingest_enabled for item in bindings):
             raise RuntimeError("所有采集频道都已勾选「跳过采集」")
+        if not upload_configured(self.settings, "telegram"):
+            raise RuntimeError(upload_missing_message(self.settings, "telegram"))
 
         for binding in bindings:
             if not binding.ingest_enabled:
@@ -1481,6 +1489,8 @@ class TelegramMangaWorker:
         if not source_key:
             logger.warning("Skip chapter without source_key chat=%s", chapter.chat_id)
             return
+        stored_hint = await self._load_stored_outbound(source_key)
+        self.store.remember_group(source_key, stored_hint.image_urls if stored_hint else [])
 
         new_chapter = False
         site_published: bool | None = None
@@ -1624,7 +1634,7 @@ class TelegramMangaWorker:
                 if page.kind == "video":
                     url = f"tg:{chapter.chat_id}:{page.message_id}"
                 else:
-                    url = await self._upload_with_retry(page)
+                    url = await self._upload_with_retry(page, group_key=source_key)
                 batch_urls.append(url)
                 batch_ids.append(page.message_id)
                 batch_kinds.append(page.kind if page.kind == "video" else "image")
@@ -1708,7 +1718,7 @@ class TelegramMangaWorker:
             )
             return
         if can_publish_outbound(
-            channel_enabled=self.channel.enabled,
+            channel_enabled=publisher_enabled_for(self.channel, "telegram"),
             send_album=send_album,
             video_urls=outbound_videos,
             site_enabled=self.site.enabled,
@@ -1803,7 +1813,7 @@ class TelegramMangaWorker:
                             detail=f"{exc}\n{retry_detail}",
                             fingerprint=str(source_key or "outbound"),
                         )
-        elif published and self.channel.enabled and (send_album or outbound_videos):
+        elif published and publisher_enabled_for(self.channel, "telegram") and (send_album or outbound_videos):
             logger.warning(
                 "Skip outbound Telegram until site publish succeeds slug=%s pages=%d",
                 published.slug,
@@ -1846,7 +1856,7 @@ class TelegramMangaWorker:
                 continue
 
     async def _flush_stale_outbound(self) -> None:
-        if not self.channel.enabled and not self.site.enabled:
+        if not publisher_enabled_for(self.channel, "telegram") and not self.site.enabled:
             return
         idle = bucket_idle_seconds(
             "0:r:0",
@@ -1859,7 +1869,7 @@ class TelegramMangaWorker:
             pending = await list_pending_reply_outbound(
                 session,
                 idle_before=cutoff,
-                include_outbound=self.channel.enabled,
+                include_outbound=publisher_enabled_for(self.channel, "telegram"),
                 include_site=self.site.enabled,
             )
         if not pending:
@@ -1894,11 +1904,13 @@ class TelegramMangaWorker:
                 )
             )
 
-    async def _upload_with_retry(self, page: PendingPage) -> str:
+    async def _upload_with_retry(self, page: PendingPage, *, group_key: str | None = None) -> str:
         attempts = 3
         for attempt in range(1, attempts + 1):
             try:
-                return await self.imgbed.upload_file(page.local_path, filename=page.filename)
+                return await self.store.upload_file(
+                    page.local_path, filename=page.filename, group_key=group_key
+                )
             except Exception:
                 if attempt == attempts:
                     raise

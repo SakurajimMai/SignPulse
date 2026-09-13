@@ -38,6 +38,7 @@ import { formatShortDateTime } from '../lib/datetime'
 import { useAccountsStore } from '../stores/accounts'
 import { useSecretReveal } from '../composables/useSecretReveal'
 import SecretInput from '../components/SecretInput.vue'
+import UploadTargetSelect from '../components/manga/UploadTargetSelect.vue'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -83,6 +84,8 @@ const {
     cfbed_api_token: '',
     site_publish_secret: '',
     outbound_bot_token: '',
+    ftp_password: '',
+    sftp_password: '',
   }),
   {
     isSaved: (key) => Boolean(settings.value?.[`${key}_set` as keyof MangaSettings]),
@@ -108,6 +111,17 @@ const statusTone = computed(() => {
   if (workerRunning.value) return 'text-emerald-600 dark:text-emerald-400'
   if (status.value?.last_error) return 'text-rose-600 dark:text-rose-400'
   return 'text-gray-500 dark:text-gray-400'
+})
+const uploadTarget = computed(() => settings.value?.upload_telegram || 'imgbed')
+const uploadOk = computed(() => {
+  if (uploadTarget.value === 'ftp') return Boolean(status.value?.ftp_configured)
+  if (uploadTarget.value === 'sftp') return Boolean(status.value?.sftp_configured)
+  return Boolean(status.value?.imgbed_configured)
+})
+const uploadLabel = computed(() => {
+  if (uploadTarget.value === 'ftp') return t('manga.uploadFtp')
+  if (uploadTarget.value === 'sftp') return t('manga.uploadSftp')
+  return t('manga.imgbed')
 })
 
 const normalizeBindings = (value: MangaSettings): MangaSourceBinding[] => {
@@ -234,8 +248,26 @@ const saveSettings = async () => {
       cfbed_public_base: settings.value.cfbed_public_base,
       cfbed_file_field: settings.value.cfbed_file_field,
       cfbed_retry_delay_seconds: settings.value.cfbed_retry_delay_seconds,
+      upload_telegram: settings.value.upload_telegram || 'imgbed',
+      upload_ehentai: settings.value.upload_ehentai || 'imgbed',
+      upload_wnacg: settings.value.upload_wnacg || 'imgbed',
+      ftp_host: settings.value.ftp_host || '',
+      ftp_port: Number(settings.value.ftp_port || 21),
+      ftp_username: settings.value.ftp_username || '',
+      ftp_remote_dir: settings.value.ftp_remote_dir || 'manga',
+      ftp_public_base: settings.value.ftp_public_base || '',
+      ftp_tls: Boolean(settings.value.ftp_tls),
+      ftp_passive: settings.value.ftp_passive !== false,
+      sftp_host: settings.value.sftp_host || '',
+      sftp_port: Number(settings.value.sftp_port || 22),
+      sftp_username: settings.value.sftp_username || '',
+      sftp_remote_dir: settings.value.sftp_remote_dir || 'manga',
+      sftp_public_base: settings.value.sftp_public_base || '',
       site_publish_url: settings.value.site_publish_url,
       outbound_enabled: Boolean(settings.value.outbound_enabled),
+      outbound_telegram: settings.value.outbound_telegram !== false,
+      outbound_ehentai: settings.value.outbound_ehentai !== false,
+      outbound_wnacg: settings.value.outbound_wnacg !== false,
       outbound_channel: settings.value.outbound_channel || '',
       outbound_preview_count: settings.value.outbound_preview_count || 4,
       outbound_button_text: settings.value.outbound_button_text || '点击阅读',
@@ -365,8 +397,8 @@ onUnmounted(() => {
           <div class="mt-2 flex items-center gap-2 text-lg font-semibold text-gray-900 dark:text-gray-100 tabular-nums"><BookOpen class="w-4 h-4 text-sky-500" />{{ catalogTotal }}</div>
         </div>
         <div class="ui-card p-4">
-          <div class="ui-section-label">{{ t('manga.imgbed') }}</div>
-          <div class="mt-2 text-sm font-medium" :class="status?.imgbed_configured ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">{{ status?.imgbed_configured ? t('manga.configured') : t('manga.notConfigured') }}</div>
+          <div class="ui-section-label">{{ uploadLabel }}</div>
+          <div class="mt-2 text-sm font-medium" :class="uploadOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'">{{ uploadOk ? t('manga.configured') : t('manga.notConfigured') }}</div>
         </div>
         <div class="ui-card p-4">
           <div class="ui-section-label">{{ t('manga.sitePublish') }}</div>
@@ -545,12 +577,35 @@ onUnmounted(() => {
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.idleSeconds') }}</label><input :value="settings.chapter_idle_seconds" type="number" min="1" step="1" class="ui-input" @input="update('chapter_idle_seconds', Number(($event.target as HTMLInputElement).value) || 8)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.maxPages') }}</label><input :value="settings.chapter_max_pages" type="number" min="1" max="10000" class="ui-input" @input="update('chapter_max_pages', Number(($event.target as HTMLInputElement).value) || 200)"></div>
 
-          <div class="lg:col-span-2 pt-3 border-t border-gray-200 dark:border-gray-800/60"><div class="ui-section-label mb-3">{{ t('manga.deliveryTitle') }}</div></div>
+          <div class="lg:col-span-2 pt-3 border-t border-gray-200 dark:border-gray-800/60"><div class="ui-section-label mb-3">{{ t('manga.deliveryTitle') }}</div>
+            <p class="text-[10px] text-gray-500 mb-3">{{ t('manga.uploadHint') }}</p>
+          </div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.uploadTelegram') }}</label><UploadTargetSelect :model-value="settings.upload_telegram || 'imgbed'" @update:model-value="update('upload_telegram', $event)" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.uploadEhentai') }}</label><UploadTargetSelect :model-value="settings.upload_ehentai || 'imgbed'" @update:model-value="update('upload_ehentai', $event)" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.uploadWnacg') }}</label><UploadTargetSelect :model-value="settings.upload_wnacg || 'imgbed'" @update:model-value="update('upload_wnacg', $event)" /></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.imgbedUrl') }}</label><input :value="settings.cfbed_upload_url" class="ui-input" placeholder="https://img.example.com/upload" @input="update('cfbed_upload_url', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.imgbedAuth') }}</label><SecretInput v-model="secretDraft.cfbed_auth_code" :revealed="revealSecrets.cfbed_auth_code" :loading="secretsLoading" :placeholder="settings.cfbed_auth_code_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('cfbed_auth_code')" /></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.imgbedToken') }}</label><SecretInput v-model="secretDraft.cfbed_api_token" :revealed="revealSecrets.cfbed_api_token" :loading="secretsLoading" :placeholder="settings.cfbed_api_token_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('cfbed_api_token')" /></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.imgbedPublicBase') }}</label><input :value="settings.cfbed_public_base" class="ui-input" placeholder="https://img.example.com" @input="update('cfbed_public_base', ($event.target as HTMLInputElement).value)"></div>
           <div class="lg:col-span-2 space-y-1.5"><label class="ui-label">{{ t('manga.imgbedExtraQuery') }}</label><input :value="settings.cfbed_extra_query" class="ui-input" placeholder="uploadChannel=cfr2" @input="update('cfbed_extra_query', ($event.target as HTMLInputElement).value)"></div>
+          <div class="lg:col-span-2 pt-2"><div class="ui-section-label mb-2">FTP</div></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpHost') }}</label><input :value="settings.ftp_host || ''" class="ui-input" placeholder="ftp.example.com" @input="update('ftp_host', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpPort') }}</label><input :value="settings.ftp_port ?? 21" type="number" min="1" max="65535" class="ui-input" @input="update('ftp_port', Math.max(1, Math.min(65535, Number(($event.target as HTMLInputElement).value) || 21)))"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpUsername') }}</label><input :value="settings.ftp_username || ''" class="ui-input" autocomplete="off" @input="update('ftp_username', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpPassword') }}</label><SecretInput v-model="secretDraft.ftp_password" :revealed="revealSecrets.ftp_password" :loading="secretsLoading" :placeholder="settings.ftp_password_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('ftp_password')" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpRemoteDir') }}</label><input :value="settings.ftp_remote_dir || 'manga'" class="ui-input" placeholder="manga" @input="update('ftp_remote_dir', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.ftpPublicBase') }}</label><input :value="settings.ftp_public_base || ''" class="ui-input" placeholder="https://cdn.example.com/manga" @input="update('ftp_public_base', ($event.target as HTMLInputElement).value)"></div>
+          <div class="lg:col-span-2 flex flex-wrap gap-x-6 gap-y-3">
+            <label class="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><input :checked="Boolean(settings.ftp_tls)" type="checkbox" class="accent-sky-500" @change="update('ftp_tls', ($event.target as HTMLInputElement).checked)">{{ t('manga.ftpTls') }}</label>
+            <label class="inline-flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300"><input :checked="settings.ftp_passive !== false" type="checkbox" class="accent-sky-500" @change="update('ftp_passive', ($event.target as HTMLInputElement).checked)">{{ t('manga.ftpPassive') }}</label>
+          </div>
+          <div class="lg:col-span-2 pt-2"><div class="ui-section-label mb-2">SFTP</div></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpHost') }}</label><input :value="settings.sftp_host || ''" class="ui-input" placeholder="sftp.example.com" @input="update('sftp_host', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpPort') }}</label><input :value="settings.sftp_port ?? 22" type="number" min="1" max="65535" class="ui-input" @input="update('sftp_port', Math.max(1, Math.min(65535, Number(($event.target as HTMLInputElement).value) || 22)))"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpUsername') }}</label><input :value="settings.sftp_username || ''" class="ui-input" autocomplete="off" @input="update('sftp_username', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpPassword') }}</label><SecretInput v-model="secretDraft.sftp_password" :revealed="revealSecrets.sftp_password" :loading="secretsLoading" :placeholder="settings.sftp_password_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('sftp_password')" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpRemoteDir') }}</label><input :value="settings.sftp_remote_dir || 'manga'" class="ui-input" placeholder="manga" @input="update('sftp_remote_dir', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpPublicBase') }}</label><input :value="settings.sftp_public_base || ''" class="ui-input" placeholder="https://cdn.example.com/manga" @input="update('sftp_public_base', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.siteUrl') }}</label><input :value="settings.site_publish_url" class="ui-input" placeholder="https://example.com/api/manga/publish" @input="update('site_publish_url', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.siteSecret') }}</label><SecretInput v-model="secretDraft.site_publish_secret" :revealed="revealSecrets.site_publish_secret" :loading="secretsLoading" :placeholder="settings.site_publish_secret_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('site_publish_secret')" /></div>
 
@@ -561,6 +616,29 @@ onUnmounted(() => {
               <p class="text-xs text-gray-500 mt-1">{{ t('manga.outboundHint') }}</p>
             </div>
             <button type="button" class="ui-switch" role="switch" :aria-checked="Boolean(settings.outbound_enabled)" :class="settings.outbound_enabled ? 'ui-switch-on' : ''" @click="update('outbound_enabled', !settings.outbound_enabled)"><span class="ui-switch-knob" /></button>
+          </div>
+          <div class="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="flex items-center justify-between gap-3 p-3 border border-gray-200 dark:border-gray-800/60">
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('manga.outboundTelegram') }}</div>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('manga.outboundTelegramHint') }}</p>
+              </div>
+              <button type="button" class="ui-switch" role="switch" :aria-checked="settings.outbound_telegram !== false" :class="settings.outbound_telegram !== false ? 'ui-switch-on' : ''" @click="update('outbound_telegram', settings.outbound_telegram === false)"><span class="ui-switch-knob" /></button>
+            </div>
+            <div class="flex items-center justify-between gap-3 p-3 border border-gray-200 dark:border-gray-800/60">
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('manga.outboundEhentai') }}</div>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('manga.outboundEhentaiHint') }}</p>
+              </div>
+              <button type="button" class="ui-switch" role="switch" :aria-checked="settings.outbound_ehentai !== false" :class="settings.outbound_ehentai !== false ? 'ui-switch-on' : ''" @click="update('outbound_ehentai', settings.outbound_ehentai === false)"><span class="ui-switch-knob" /></button>
+            </div>
+            <div class="flex items-center justify-between gap-3 p-3 border border-gray-200 dark:border-gray-800/60">
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t('manga.outboundWnacg') }}</div>
+                <p class="text-[10px] text-gray-500 mt-1">{{ t('manga.outboundWnacgHint') }}</p>
+              </div>
+              <button type="button" class="ui-switch" role="switch" :aria-checked="settings.outbound_wnacg !== false" :class="settings.outbound_wnacg !== false ? 'ui-switch-on' : ''" @click="update('outbound_wnacg', settings.outbound_wnacg === false)"><span class="ui-switch-knob" /></button>
+            </div>
           </div>
           <div class="lg:col-span-2 flex items-center justify-between gap-4 p-3 border border-gray-200 dark:border-gray-800/60">
             <div>
