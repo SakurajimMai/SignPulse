@@ -138,6 +138,14 @@ class MangaSettings:
     ehentai_poll_seconds: float = 300.0
     ehentai_translation_url: str = ""
     ehentai_translation_auto: bool = True
+    wnacg_enabled: bool = False
+    wnacg_base_url: str = "https://www.wnacg.com"
+    wnacg_categories: str = "1"
+    wnacg_max_pages: int = 400
+    wnacg_list_pages: int = 1
+    wnacg_delay_seconds: float = 1.0
+    wnacg_gallery_delay_seconds: float = 3.0
+    wnacg_poll_seconds: float = 300.0
     hmw_api_url: str = "https://www.hmw.app/api/publisher"
     hmw_publisher_token: str = ""
     hmw_s3_endpoint: str = ""
@@ -230,6 +238,15 @@ class MangaSettings:
             ehentai_poll_seconds=max(_float("MANGA_EHENTAI_POLL_SECONDS", 300.0), 60.0),
             ehentai_translation_url=_env("MANGA_EHENTAI_TRANSLATION_URL"),
             ehentai_translation_auto=_bool("MANGA_EHENTAI_TRANSLATION_AUTO", True),
+            wnacg_enabled=_bool("MANGA_WNACG_ENABLED", False),
+            wnacg_base_url=_env("MANGA_WNACG_BASE_URL", default="https://www.wnacg.com").rstrip("/")
+            or "https://www.wnacg.com",
+            wnacg_categories=_env("MANGA_WNACG_CATEGORIES", default="1") or "1",
+            wnacg_max_pages=max(1, min(_int("MANGA_WNACG_MAX_PAGES", 400), 2000)),
+            wnacg_list_pages=max(1, min(_int("MANGA_WNACG_LIST_PAGES", 1), 10)),
+            wnacg_delay_seconds=max(_float("MANGA_WNACG_DELAY_SECONDS", 1.0), 0.0),
+            wnacg_gallery_delay_seconds=max(_float("MANGA_WNACG_GALLERY_DELAY_SECONDS", 3.0), 0.0),
+            wnacg_poll_seconds=max(_float("MANGA_WNACG_POLL_SECONDS", 300.0), 60.0),
             hmw_api_url=_env("HMW_API_URL", default="https://www.hmw.app/api/publisher").rstrip("/")
             or "https://www.hmw.app/api/publisher",
             hmw_publisher_token=_env("HMW_PUBLISHER_TOKEN"),
@@ -408,6 +425,41 @@ def save_manga_settings(updates: dict[str, Any]) -> MangaSettings:
         if url and not url.startswith(("http://", "https://")):
             url = ""
         clean["ehentai_translation_url"] = url
+    if "wnacg_base_url" in clean:
+        from backend.services.manga.wnacg.categories import normalize_base_url
+
+        clean["wnacg_base_url"] = normalize_base_url(clean["wnacg_base_url"])
+    if "wnacg_categories" in clean:
+        from backend.services.manga.wnacg.categories import serialize_category_ids
+
+        clean["wnacg_categories"] = serialize_category_ids(clean["wnacg_categories"])
+    if "wnacg_max_pages" in clean:
+        try:
+            clean["wnacg_max_pages"] = max(1, min(int(clean["wnacg_max_pages"] or 400), 2000))
+        except (TypeError, ValueError):
+            clean["wnacg_max_pages"] = 400
+    if "wnacg_list_pages" in clean:
+        try:
+            clean["wnacg_list_pages"] = max(1, min(int(clean["wnacg_list_pages"] or 1), 10))
+        except (TypeError, ValueError):
+            clean["wnacg_list_pages"] = 1
+    if "wnacg_delay_seconds" in clean:
+        try:
+            clean["wnacg_delay_seconds"] = max(float(clean["wnacg_delay_seconds"] or 0), 0.0)
+        except (TypeError, ValueError):
+            clean["wnacg_delay_seconds"] = 1.0
+    if "wnacg_gallery_delay_seconds" in clean:
+        try:
+            clean["wnacg_gallery_delay_seconds"] = max(
+                float(clean["wnacg_gallery_delay_seconds"] or 0), 0.0
+            )
+        except (TypeError, ValueError):
+            clean["wnacg_gallery_delay_seconds"] = 3.0
+    if "wnacg_poll_seconds" in clean:
+        try:
+            clean["wnacg_poll_seconds"] = max(float(clean["wnacg_poll_seconds"] or 60), 60.0)
+        except (TypeError, ValueError):
+            clean["wnacg_poll_seconds"] = 300.0
     if "hmw_api_url" in clean:
         url = str(clean["hmw_api_url"] or "").strip().rstrip("/")
         if url and not url.startswith(("http://", "https://")):

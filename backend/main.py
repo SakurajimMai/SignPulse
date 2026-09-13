@@ -750,6 +750,7 @@ async def on_shutdown() -> None:
 
         runtime = get_manga_runtime()
         await runtime.stop_ehentai()
+        await runtime.stop_wnacg()
         await runtime.stop(close_database=True)
     except Exception:
         log.exception("漫画 worker shutdown failed")

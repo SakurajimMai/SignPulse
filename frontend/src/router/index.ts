@@ -29,12 +29,20 @@ const router = createRouter({
             if (hash.includes('ehentai')) {
               return { name: 'manga-ehentai', replace: true }
             }
+            if (hash.includes('wnacg')) {
+              return { name: 'manga-wnacg', replace: true }
+            }
           },
         },
         {
           path: 'manga/ehentai',
           name: 'manga-ehentai',
           component: () => import('../views/MangaEhentai.vue'),
+        },
+        {
+          path: 'manga/wnacg',
+          name: 'manga-wnacg',
+          component: () => import('../views/MangaWnacg.vue'),
         },
         {
           path: 'manga/hmw',
@@ -68,8 +76,12 @@ router.beforeEach((to) => {
   const authRedirect = resolveAuthRedirect(typeof to.name === 'string' ? to.name : null, authStore)
   if (authRedirect) return authRedirect
   // 旧锚点 /manga#manga-ehentai 必须进独立二级页，不能留在频道采集页
-  if (to.name === 'manga' && String(to.hash || '').toLowerCase().includes('ehentai')) {
+  const mangaHash = String(to.hash || '').toLowerCase()
+  if (to.name === 'manga' && mangaHash.includes('ehentai')) {
     return { name: 'manga-ehentai', replace: true }
+  }
+  if (to.name === 'manga' && mangaHash.includes('wnacg')) {
+    return { name: 'manga-wnacg', replace: true }
   }
 })
 

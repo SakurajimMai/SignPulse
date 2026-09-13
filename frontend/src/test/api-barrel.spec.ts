@@ -54,6 +54,13 @@ describe('api barrel 完整性', () => {
     expect(typeof api.runEhentaiPass).toBe('function')
     expect(typeof api.getEhentaiStatus).toBe('function')
   })
+  it('manga WNACG API 导出', () => {
+    expect(typeof api.startWnacgWorker).toBe('function')
+    expect(typeof api.stopWnacgWorker).toBe('function')
+    expect(typeof api.runWnacgPass).toBe('function')
+    expect(typeof api.getWnacgStatus).toBe('function')
+    expect(typeof api.listWnacgCategories).toBe('function')
+  })
   it('games API 导出', () => {
     expect(typeof api.getGamesSettings).toBe('function')
     expect(typeof api.saveGamesSettings).toBe('function')

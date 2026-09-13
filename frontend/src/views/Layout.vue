@@ -105,6 +105,7 @@ const navigation = [
     children: [
       { name: 'manga', labelKey: 'nav.mangaTelegram' },
       { name: 'manga-ehentai', labelKey: 'nav.mangaEhentai' },
+      { name: 'manga-wnacg', labelKey: 'nav.mangaWnacg' },
       { name: 'manga-hmw', labelKey: 'nav.mangaHmw' },
     ],
   },

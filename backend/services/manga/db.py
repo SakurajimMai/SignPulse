@@ -339,12 +339,17 @@ async def list_mangas(
         stmt = stmt.where(Manga.is_published.is_(True))
         count_stmt = count_stmt.where(Manga.is_published.is_(True))
     source_name = (source or "").strip().casefold()
+    site_ids = ("ehentai", "wnacg")
     if source_name == "ehentai":
         cond = or_(Manga.source_chat_id == "ehentai", Manga.source_chat_title == "E-Hentai")
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
+    elif source_name == "wnacg":
+        cond = or_(Manga.source_chat_id == "wnacg", Manga.source_chat_title == "WNACG")
+        stmt = stmt.where(cond)
+        count_stmt = count_stmt.where(cond)
     elif source_name in {"telegram", "channel"}:
-        cond = or_(Manga.source_chat_id.is_(None), Manga.source_chat_id != "ehentai")
+        cond = or_(Manga.source_chat_id.is_(None), Manga.source_chat_id.notin_(site_ids))
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
     if q:

@@ -53,6 +53,7 @@ export interface MangaRuntimeStatus {
   telegram_authorized?: boolean
   telegram_account_name?: string | null
   ehentai?: EhentaiRuntimeStatus
+  wnacg?: WnacgRuntimeStatus
   hmw?: HmwRuntimeStatus
 }
 
@@ -119,6 +120,14 @@ export interface MangaSettings {
   ehentai_poll_seconds?: number
   ehentai_translation_url?: string
   ehentai_translation_auto?: boolean
+  wnacg_enabled?: boolean
+  wnacg_base_url?: string
+  wnacg_categories?: string
+  wnacg_max_pages?: number
+  wnacg_list_pages?: number
+  wnacg_delay_seconds?: number
+  wnacg_gallery_delay_seconds?: number
+  wnacg_poll_seconds?: number
   hmw_api_url?: string
   hmw_publisher_token?: string | null
   hmw_publisher_token_set?: boolean
@@ -289,6 +298,68 @@ export const refreshEhentaiTranslations = (token: string) =>
     translations: EhentaiTranslationStatus
   }>(
     '/manga/ehentai/translations/refresh',
+    { method: 'POST' },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  )
+
+export interface WnacgCategory {
+  id: string
+  label: string
+  group: string
+  group_label: string
+  parent_id?: string | null
+  cate_id?: number | null
+}
+
+export interface WnacgRuntimeStatus {
+  worker_status: 'running' | 'starting' | 'stopped' | 'disabled' | string
+  last_error?: string | null
+  base_url?: string
+  categories?: WnacgCategory[]
+  selected?: string[]
+  category_count?: number
+  current?: {
+    title?: string
+    url?: string
+    pages?: number
+    total?: number
+  }
+  processed?: number
+  skipped?: number
+  failed?: number
+  recent?: EhentaiJob[]
+  phase?: 'idle' | 'searching' | 'waiting' | string
+  next_pass_at?: string | null
+  poll_seconds?: number
+  listening?: boolean
+}
+
+export const getWnacgStatus = (token: string) =>
+  request<WnacgRuntimeStatus>('/manga/wnacg/status', {}, token, MEDIUM_TIMEOUT_MS)
+
+export const listWnacgCategories = (token: string) =>
+  request<{ data: WnacgCategory[] }>('/manga/wnacg/categories', {}, token)
+
+export const startWnacgWorker = (token: string) =>
+  request<{ success: boolean; message: string; status: WnacgRuntimeStatus }>(
+    '/manga/wnacg/start',
+    { method: 'POST' },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  )
+
+export const stopWnacgWorker = (token: string) =>
+  request<{ success: boolean; message: string; status: WnacgRuntimeStatus }>(
+    '/manga/wnacg/stop',
+    { method: 'POST' },
+    token,
+    MEDIUM_TIMEOUT_MS,
+  )
+
+export const runWnacgPass = (token: string) =>
+  request<{ success: boolean; message: string; status: WnacgRuntimeStatus }>(
+    '/manga/wnacg/run-once',
     { method: 'POST' },
     token,
     MEDIUM_TIMEOUT_MS,

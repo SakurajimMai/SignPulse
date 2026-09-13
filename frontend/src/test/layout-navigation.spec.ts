@@ -19,6 +19,7 @@ const createTestRouter = () => createRouter({
         { path: 'logs', name: 'logs', component: PageStub },
         { path: 'manga', name: 'manga', component: PageStub },
         { path: 'manga/ehentai', name: 'manga-ehentai', component: PageStub },
+        { path: 'manga/wnacg', name: 'manga-wnacg', component: PageStub },
         { path: 'manga/hmw', name: 'manga-hmw', component: PageStub },
         { path: 'games', name: 'games', component: PageStub },
         { path: 'coser', name: 'coser', component: PageStub },

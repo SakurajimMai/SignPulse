@@ -143,6 +143,7 @@ async def reconcile_proxy_runtime() -> dict[str, Any]:
 
             manga_runtime = get_manga_runtime()
             await manga_runtime.stop_ehentai()
+            await manga_runtime.stop_wnacg()
             await manga_runtime.stop()
         except Exception:
             failures.append("manga_stop")

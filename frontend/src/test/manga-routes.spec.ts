@@ -20,6 +20,11 @@ describe('漫画采集二级栏目路由', () => {
     expect(eh?.path).not.toBe(manga?.path)
   })
 
+  it('WNACG 是独立路径 /manga/wnacg', () => {
+    const wnacg = router.getRoutes().find((route) => route.name === 'manga-wnacg')
+    expect(wnacg?.path).toBe('/manga/wnacg')
+  })
+
   it('HMW 发布是独立路径 /manga/hmw', () => {
     const hmw = router.getRoutes().find((route) => route.name === 'manga-hmw')
     expect(hmw?.path).toBe('/manga/hmw')
@@ -32,8 +37,8 @@ describe('漫画采集二级栏目路由', () => {
 })
 
 describe('漫画采集页布局', () => {
-  it('三个采集页根容器铺满主栏并水平居中，不再左贴 max-w-7xl', () => {
-    for (const file of ['Manga.vue', 'MangaEhentai.vue', 'MangaHmw.vue']) {
+  it('四个采集页根容器铺满主栏并水平居中，不再左贴 max-w-7xl', () => {
+    for (const file of ['Manga.vue', 'MangaEhentai.vue', 'MangaWnacg.vue', 'MangaHmw.vue']) {
       const src = readFileSync(resolve(viewsDir, file), 'utf8')
       const match = src.match(/<template>\s*<div class="([^"]+)"/)
       expect(match?.[1], file).toContain('mx-auto')
@@ -63,6 +68,20 @@ describe('Coser 发布栏目路由', () => {
     expect(i18n.global.t('coser.pageHint')).toContain('S3')
     i18n.global.locale.value = 'en-US'
     expect(i18n.global.t('nav.coser')).toBe('Coser publish')
+    i18n.global.locale.value = 'zh-CN'
+  })
+})
+
+describe('WNACG 页面文案', () => {
+  it('中英文都有 WNACG 导航和分类提示', async () => {
+    const { default: i18n } = await import('../i18n')
+    i18n.global.locale.value = 'zh-CN'
+    expect(i18n.global.t('nav.mangaWnacg')).toBe('WNACG')
+    expect(i18n.global.t('manga.wnacgCategoriesHint')).toContain('分类')
+    expect(i18n.global.t('manga.wnacgBaseUrlPlaceholder')).toContain('wnacg.com')
+    i18n.global.locale.value = 'en-US'
+    expect(i18n.global.t('nav.mangaWnacg')).toBe('WNACG')
+    expect(i18n.global.t('manga.wnacgTitle')).toBe('WNACG ingest')
     i18n.global.locale.value = 'zh-CN'
   })
 })

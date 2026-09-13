@@ -537,6 +537,16 @@ async def test_list_mangas_source_filter_paginates(tmp_path: Path):
                     chapter_count=2,
                 )
             )
+            session.add(
+                Manga(
+                    slug="wn-one",
+                    title="WNACG 1",
+                    source_chat_id="wnacg",
+                    source_chat_title="WNACG",
+                    page_count=22,
+                    chapter_count=1,
+                )
+            )
             await session.commit()
 
             page1, total = await list_mangas(session, page=1, limit=12, source="ehentai", published_only=False)
@@ -550,6 +560,11 @@ async def test_list_mangas_source_filter_paginates(tmp_path: Path):
             )
             assert channel_total == 1
             assert channel[0].slug == "tg-one"
+            wnacg, wnacg_total = await list_mangas(
+                session, page=1, limit=12, source="wnacg", published_only=False
+            )
+            assert wnacg_total == 1
+            assert wnacg[0].slug == "wn-one"
             found, found_total = await list_mangas(
                 session, page=1, limit=12, q="E-Hentai 15", source="ehentai", published_only=False
             )

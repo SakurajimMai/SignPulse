@@ -70,6 +70,8 @@ ALERT_RULES: tuple[dict[str, Any], ...] = (
     ),
     _rule("manga_ehentai_worker_fail", "manga", "E-Hentai 监听进程失败"),
     _rule("manga_ehentai_gallery_fail", "manga", "E-Hentai 画廊采集失败"),
+    _rule("manga_wnacg_worker_fail", "manga", "WNACG 监听进程失败"),
+    _rule("manga_wnacg_gallery_fail", "manga", "WNACG 相册采集失败"),
     _rule("manga_hmw_source_fail", "manga", "HMW 来源预处理失败"),
     _rule("manga_hmw_convert_fail", "manga", "HMW 图片转换失败"),
     _rule("manga_hmw_storage_fail", "manga", "HMW 存储上传或校验失败"),
@@ -165,6 +167,10 @@ LEGACY_RULE_MIGRATIONS: dict[str, tuple[str, ...]] = {
     "manga_ehentai_fail": (
         "manga_ehentai_worker_fail",
         "manga_ehentai_gallery_fail",
+    ),
+    "manga_wnacg_fail": (
+        "manga_wnacg_worker_fail",
+        "manga_wnacg_gallery_fail",
     ),
     "manga_hmw_fail": (
         "manga_hmw_source_fail",

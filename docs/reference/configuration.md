@@ -115,6 +115,14 @@ environment:
 | `MANGA_OUTBOUND_VIDEO_ALLOW_KEYWORDS` | 空 | 视频白名单；非空时必须命中其中一个词才转发 |
 | `MANGA_OUTBOUND_VIDEO_MIN_SECONDS` | `0` | 短于该秒数的视频不转发；`0` 不限 |
 | `MANGA_OUTBOUND_VIDEO_MAX_SECONDS` | `0` | 长于该秒数的视频不转发；`0` 不限 |
+| `MANGA_WNACG_ENABLED` | `false` | 是否持续监听 WNACG（绅士漫画）分类列表 |
+| `MANGA_WNACG_BASE_URL` | `https://www.wnacg.com` | 站点或镜像，不要尾斜杠 |
+| `MANGA_WNACG_CATEGORIES` | `1` | 逗号分隔分类 id，如 `1,9,20`（同人誌漢化 / 單行本漢化 / 韓漫漢化） |
+| `MANGA_WNACG_MAX_PAGES` | `400` | 单本超过该页数则跳过 |
+| `MANGA_WNACG_LIST_PAGES` | `1` | 每个分类每轮翻多少页 |
+| `MANGA_WNACG_DELAY_SECONDS` | `1` | 请求间隔 |
+| `MANGA_WNACG_GALLERY_DELAY_SECONDS` | `3` | 相册间隔 |
+| `MANGA_WNACG_POLL_SECONDS` | `300` | 整轮采完后再等的秒数，最小 60 |
 
 ### 获取 Telegram API 凭证
 

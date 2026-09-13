@@ -14,6 +14,7 @@ logger = logging.getLogger("backend.manga.runtime")
 
 # 监听进程异常退出后自动拉起的等待；测试可改成 0
 EHENTAI_RESTART_DELAY = 5.0
+WNACG_RESTART_DELAY = 5.0
 
 
 @dataclass
@@ -28,6 +29,11 @@ class MangaRuntime:
     ehentai_error: str | None = None
     _ehentai_stopping: bool = False
     _ehentai_generation: int = 0
+    wnacg_worker: Any | None = None
+    wnacg_task: asyncio.Task | None = None
+    wnacg_error: str | None = None
+    _wnacg_stopping: bool = False
+    _wnacg_generation: int = 0
 
     async def initialize(self) -> MangaSettings:
         self.settings = load_manga_settings()
@@ -80,6 +86,7 @@ class MangaRuntime:
             "source_bindings": len(settings.binding_list),
             "telegram_authorized": self.worker is not None,
             "ehentai": self.ehentai_status(),
+            "wnacg": self.wnacg_status(),
             "hmw": self.hmw_status(),
         }
 
@@ -94,6 +101,18 @@ class MangaRuntime:
                 schedule_alert(
                     "manga_ehentai_worker_fail",
                     title="E-Hentai 未能自动启动",
+                    detail=str(exc),
+                    fingerprint="start",
+                )
+        if settings.wnacg_enabled:
+            try:
+                await self.start_wnacg()
+            except Exception as exc:
+                self.wnacg_error = str(exc)
+                logger.warning("WNACG 未能自动启动: %s", exc)
+                schedule_alert(
+                    "manga_wnacg_worker_fail",
+                    title="WNACG 未能自动启动",
                     detail=str(exc),
                     fingerprint="start",
                 )
@@ -368,6 +387,155 @@ class MangaRuntime:
         payload["backfill"] = report
         return payload
 
+    def wnacg_status(self) -> dict[str, Any]:
+        settings = self.current_settings()
+        task = self.wnacg_task
+        if task and task.done() and self.wnacg_worker is not None:
+            self.wnacg_error = self.wnacg_error or "WNACG worker stopped"
+            self.wnacg_worker = None
+            self.wnacg_task = None
+        from .wnacg.categories import CATEGORIES, parse_category_ids
+        from .wnacg.worker import poll_seconds
+
+        selected = parse_category_ids(settings.wnacg_categories)
+        if self.wnacg_worker is not None:
+            payload = self.wnacg_worker.status()
+            if self.wnacg_error:
+                payload["last_error"] = payload.get("last_error") or self.wnacg_error
+            return payload
+        return {
+            "worker_status": "disabled" if not settings.wnacg_enabled else "stopped",
+            "last_error": self.wnacg_error,
+            "base_url": settings.wnacg_base_url,
+            "categories": [item.as_dict() for item in CATEGORIES],
+            "selected": selected,
+            "category_count": len(selected),
+            "current": {},
+            "processed": 0,
+            "skipped": 0,
+            "failed": 0,
+            "recent": [],
+            "phase": "idle",
+            "next_pass_at": None,
+            "poll_seconds": poll_seconds(settings),
+            "listening": False,
+        }
+
+    async def start_wnacg(self) -> dict[str, Any]:
+        if not self.initialized:
+            await self.initialize()
+        if self.wnacg_worker is not None and self.wnacg_task and not self.wnacg_task.done():
+            return self.wnacg_status()
+        from .wnacg.categories import parse_category_ids
+        from .wnacg.worker import WnacgWorker
+
+        settings = self.current_settings()
+        settings.ensure_dirs()
+        if not settings.wnacg_enabled:
+            settings = save_manga_settings({"wnacg_enabled": True})
+            self.settings = settings
+            logger.info("已自动打开 WNACG 持续监听")
+        if not parse_category_ids(settings.wnacg_categories):
+            raise RuntimeError("请至少选择一个 WNACG 分类")
+        if not settings.cfbed_upload_url:
+            raise RuntimeError("请先配置图床，WNACG 图片要上传后再发主站")
+        self.wnacg_error = None
+        worker = WnacgWorker(settings, self._telegram_client)
+        self.wnacg_worker = worker
+        self._wnacg_generation += 1
+        generation = self._wnacg_generation
+        self.wnacg_task = asyncio.create_task(
+            self._serve_wnacg(worker, generation), name="manga-wnacg-worker"
+        )
+        logger.info("WNACG 漫画监听已启动")
+        return self.wnacg_status()
+
+    async def _serve_wnacg(self, worker: Any, generation: int) -> None:
+        crashed = False
+        try:
+            await worker.run_until_stopped()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            crashed = True
+            self.wnacg_error = str(exc)
+            logger.exception("WNACG worker 运行失败")
+            schedule_alert(
+                "manga_wnacg_worker_fail",
+                title="WNACG 监听运行失败",
+                detail=str(exc),
+                fingerprint="worker",
+            )
+        finally:
+            await worker.stop()
+            if self.wnacg_worker is worker:
+                self.wnacg_worker = None
+                self.wnacg_task = None
+            should_restart = (
+                crashed
+                and generation == self._wnacg_generation
+                and not self._wnacg_stopping
+                and bool(self.current_settings().wnacg_enabled)
+            )
+            if should_restart:
+                logger.warning("WNACG 监听异常退出，将自动拉起")
+                asyncio.create_task(
+                    self._restart_wnacg(generation), name="manga-wnacg-restart"
+                )
+
+    async def _restart_wnacg(self, generation: int) -> None:
+        await asyncio.sleep(max(float(WNACG_RESTART_DELAY), 0.0))
+        if generation != self._wnacg_generation or self._wnacg_stopping:
+            return
+        settings = load_manga_settings()
+        self.settings = settings
+        if not settings.wnacg_enabled:
+            return
+        if self.wnacg_worker is not None and self.wnacg_task and not self.wnacg_task.done():
+            return
+        try:
+            await self.start_wnacg()
+        except Exception as exc:
+            self.wnacg_error = str(exc)
+            logger.exception("WNACG 自动拉起失败")
+
+    async def stop_wnacg(self, *, persist_disabled: bool = False) -> dict[str, Any]:
+        self._wnacg_stopping = True
+        self._wnacg_generation += 1
+        try:
+            if persist_disabled:
+                self.settings = save_manga_settings({"wnacg_enabled": False})
+            worker = self.wnacg_worker
+            task = self.wnacg_task
+            self.wnacg_worker = None
+            self.wnacg_task = None
+            if worker is not None:
+                await worker.stop()
+            if task is not None and task is not asyncio.current_task() and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            logger.info("WNACG 漫画监听已停止")
+            return self.wnacg_status()
+        finally:
+            self._wnacg_stopping = False
+
+    async def request_wnacg_pass(self) -> dict[str, Any]:
+        settings = self.current_settings()
+        if not settings.wnacg_enabled:
+            raise RuntimeError("请先打开持续监听")
+        task = self.wnacg_task
+        worker = self.wnacg_worker
+        if worker is None or task is None or task.done():
+            return await self.start_wnacg()
+        request = getattr(worker, "request_pass", None)
+        if callable(request):
+            request()
+            logger.info("WNACG 已触发立即采集")
+        return self.wnacg_status()
+
     async def refresh_ehentai_translations(self, *, force: bool = True) -> dict[str, Any]:
         if not self.initialized:
             await self.initialize()
@@ -387,6 +555,7 @@ class MangaRuntime:
         was_running = self.worker is not None
         await self.stop()
         await self.stop_ehentai()
+        await self.stop_wnacg()
         self.settings = load_manga_settings()
         self.initialized = False
         await self.initialize()
@@ -399,6 +568,12 @@ class MangaRuntime:
             except Exception as exc:
                 self.ehentai_error = str(exc)
                 logger.warning("E-Hentai 未能随配置重载启动: %s", exc)
+        if self.settings.wnacg_enabled:
+            try:
+                await self.start_wnacg()
+            except Exception as exc:
+                self.wnacg_error = str(exc)
+                logger.warning("WNACG 未能随配置重载启动: %s", exc)
         return self.status()
 
 

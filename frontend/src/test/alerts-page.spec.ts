@@ -89,6 +89,8 @@ const canonicalRuleIds = [
   'manga_channel_publish_fail',
   'manga_ehentai_worker_fail',
   'manga_ehentai_gallery_fail',
+  'manga_wnacg_worker_fail',
+  'manga_wnacg_gallery_fail',
   'manga_hmw_source_fail',
   'manga_hmw_convert_fail',
   'manga_hmw_storage_fail',

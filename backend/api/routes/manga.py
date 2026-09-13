@@ -95,6 +95,14 @@ class MangaSettingsRequest(BaseModel):
     ehentai_poll_seconds: float | None = Field(default=None, ge=60)
     ehentai_translation_url: str | None = Field(default=None, max_length=500)
     ehentai_translation_auto: bool | None = None
+    wnacg_enabled: bool | None = None
+    wnacg_base_url: str | None = Field(default=None, max_length=200)
+    wnacg_categories: str | None = Field(default=None, max_length=200)
+    wnacg_max_pages: int | None = Field(default=None, ge=1, le=2000)
+    wnacg_list_pages: int | None = Field(default=None, ge=1, le=10)
+    wnacg_delay_seconds: float | None = Field(default=None, ge=0)
+    wnacg_gallery_delay_seconds: float | None = Field(default=None, ge=0)
+    wnacg_poll_seconds: float | None = Field(default=None, ge=60)
     hmw_api_url: str | None = Field(default=None, max_length=500)
     hmw_publisher_token: str | None = None
     hmw_s3_endpoint: str | None = Field(default=None, max_length=500)
@@ -308,6 +316,51 @@ async def refresh_ehentai_translations(current_user: User = Depends(get_current_
         "status": result,
         "translations": result.get("translations") or {},
     }
+
+
+@router.get("/manga/wnacg/status")
+async def wnacg_status(current_user: User = Depends(get_current_user)):
+    del current_user
+    runtime = get_manga_runtime()
+    if not runtime.initialized:
+        await runtime.initialize()
+    return runtime.wnacg_status()
+
+
+@router.get("/manga/wnacg/categories")
+async def wnacg_categories(current_user: User = Depends(get_current_user)):
+    del current_user
+    from backend.services.manga.wnacg.categories import CATEGORIES
+
+    return {"data": [item.as_dict() for item in CATEGORIES]}
+
+
+@router.post("/manga/wnacg/start", response_model=WorkerActionResponse)
+async def start_wnacg_worker(current_user: User = Depends(get_current_user)):
+    del current_user
+    try:
+        result = await get_manga_runtime().start_wnacg()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WorkerActionResponse(success=True, message="WNACG 监听已启动", status=result)
+
+
+@router.post("/manga/wnacg/stop", response_model=WorkerActionResponse)
+async def stop_wnacg_worker(current_user: User = Depends(get_current_user)):
+    del current_user
+    runtime = get_manga_runtime()
+    result = await runtime.stop_wnacg(persist_disabled=True)
+    return WorkerActionResponse(success=True, message="WNACG 监听已停止", status=result)
+
+
+@router.post("/manga/wnacg/run-once", response_model=WorkerActionResponse)
+async def run_wnacg_pass(current_user: User = Depends(get_current_user)):
+    del current_user
+    try:
+        result = await get_manga_runtime().request_wnacg_pass()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return WorkerActionResponse(success=True, message="已开始立即采集", status=result)
 
 
 @router.get("/manga/catalog", response_model=MangaListResponse)

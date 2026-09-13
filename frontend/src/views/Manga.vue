@@ -45,9 +45,13 @@ const token = getAuthToken()
 const route = useRoute()
 const router = useRouter()
 
-const leaveIfEhentaiHash = () => {
-  if (String(route.hash || '').toLowerCase().includes('ehentai')) {
+const leaveIfLegacyHash = () => {
+  const hash = String(route.hash || '').toLowerCase()
+  if (hash.includes('ehentai')) {
     void router.replace({ name: 'manga-ehentai' })
+  }
+  if (hash.includes('wnacg')) {
+    void router.replace({ name: 'manga-wnacg' })
   }
 }
 
@@ -295,12 +299,12 @@ const statusLabel = (value: string | undefined) => {
 }
 
 onMounted(async () => {
-  leaveIfEhentaiHash()
+  leaveIfLegacyHash()
   await loadPage()
   pollTimer = window.setInterval(() => void loadStatus(), 10000)
 })
 
-watch(() => route.hash, leaveIfEhentaiHash)
+watch(() => route.hash, leaveIfLegacyHash)
 
 onUnmounted(() => {
   if (pollTimer !== undefined) window.clearInterval(pollTimer)

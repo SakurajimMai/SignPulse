@@ -18,7 +18,7 @@ from .config import MangaSettings
 logger = logging.getLogger(__name__)
 
 # image.ixacg.de 这类图床走 Telegram 通道，并发上传会直接 500。
-# 进程内所有采集（频道 / E-Hentai）共用一把锁。
+# 进程内所有采集（频道 / E-Hentai / WNACG）共用一把锁。
 _UPLOAD_GATE: asyncio.Semaphore | None = None
 _COOLDOWN_UNTIL = 0.0
 _LAST_OK = 0.0

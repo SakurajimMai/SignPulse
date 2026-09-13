@@ -80,6 +80,9 @@ def test_reconcile_rotates_workers_in_order(monkeypatch):
         async def stop_ehentai(self):
             events.append("ehentai-stop")
 
+        async def stop_wnacg(self):
+            events.append("wnacg-stop")
+
         async def stop(self):
             events.append("manga-stop")
 
@@ -109,6 +112,7 @@ def test_reconcile_rotates_workers_in_order(monkeypatch):
     assert events == [
         "keywords-stop",
         "ehentai-stop",
+        "wnacg-stop",
         "manga-stop",
         "keywords-start",
         "manga-start",
