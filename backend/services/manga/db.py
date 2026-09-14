@@ -306,6 +306,10 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
+def get_session_factory_or_none() -> async_sessionmaker[AsyncSession] | None:
+    return _session_factory
+
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     factory = get_session_factory()
     async with factory() as session:

@@ -16,7 +16,12 @@ from backend.services.manga.channel_publish import (
     publisher_enabled_for,
 )
 from backend.services.manga.config import MangaSettings
-from backend.services.manga.db import Chapter, Manga, get_session_factory
+from backend.services.manga.db import (
+    Chapter,
+    Manga,
+    get_session_factory,
+    get_session_factory_or_none,
+)
 from backend.services.manga.publisher import (
     PublishedChapter,
     _find_chapter_by_source_key,
@@ -600,7 +605,9 @@ class EhentaiWorker:
                     await mark_outbound_sent(session, published.chapter_id, album=True)
 
     async def _existing_page_count(self, source_key: str) -> int:
-        factory = get_session_factory()
+        factory = get_session_factory_or_none()
+        if factory is None:
+            return 0
         async with factory() as session:
             chapter = await _find_chapter_by_source_key(session, source_key)
             if chapter is None:
@@ -608,7 +615,9 @@ class EhentaiWorker:
             return int(chapter.page_count or 0)
 
     async def _existing_image_urls(self, source_key: str) -> list[str]:
-        factory = get_session_factory()
+        factory = get_session_factory_or_none()
+        if factory is None:
+            return []
         async with factory() as session:
             chapter = await _find_chapter_by_source_key(session, source_key)
             if chapter is None:
