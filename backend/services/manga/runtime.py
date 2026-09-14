@@ -54,7 +54,7 @@ class MangaRuntime:
         return self.settings
 
     def status(self) -> dict[str, Any]:
-        from .storage import ftp_configured, sftp_configured
+        from .storage import ftp_configured, object_configured, sftp_configured
 
         settings = self.current_settings()
         task = self.worker_task
@@ -85,6 +85,7 @@ class MangaRuntime:
             "imgbed_configured": bool(settings.cfbed_upload_url),
             "ftp_configured": ftp_configured(settings),
             "sftp_configured": sftp_configured(settings),
+            "object_configured": object_configured(settings),
             "upload_telegram": settings.upload_telegram,
             "upload_ehentai": settings.upload_ehentai,
             "upload_wnacg": settings.upload_wnacg,

@@ -146,6 +146,10 @@ const saveSettings = async () => {
       wp_status: settings.value.wp_status || 'publish',
       telegram_account_name: settings.value.telegram_account_name || '',
       telegram_source_channels: settings.value.telegram_source_channels || '',
+      telegram_publish_enabled: Boolean(settings.value.telegram_publish_enabled),
+      telegram_catalog_channel: settings.value.telegram_catalog_channel || '',
+      telegram_files_channel: settings.value.telegram_files_channel || '',
+      telegram_split_volume_mb: Number(settings.value.telegram_split_volume_mb || 1900),
       auto_publish_enabled: Boolean(settings.value.auto_publish_enabled),
       telegram_poll_seconds: Number(settings.value.telegram_poll_seconds || 30),
       telegram_backfill_limit: Number(settings.value.telegram_backfill_limit || 0),
@@ -431,6 +435,50 @@ onUnmounted(() => {
                 @input="update('telegram_backfill_limit', Number(($event.target as HTMLInputElement).value) || 0)"
               >
               <p class="text-[10px] text-gray-500">{{ t('games.telegramBackfillHint') }}</p>
+            </div>
+            <div class="md:col-span-4 pt-1 space-y-3">
+              <label class="inline-flex min-h-11 items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="rounded border-gray-300"
+                  :checked="Boolean(settings.telegram_publish_enabled)"
+                  @change="update('telegram_publish_enabled', ($event.target as HTMLInputElement).checked)"
+                >
+                {{ t('games.telegramPublishEnabled') }}
+              </label>
+              <p class="text-[10px] text-gray-500">{{ t('games.telegramPublishHint') }}</p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="space-y-1">
+                  <label class="ui-label">{{ t('games.telegramCatalogChannel') }}</label>
+                  <input
+                    :value="settings.telegram_catalog_channel || ''"
+                    class="ui-input"
+                    :placeholder="t('games.telegramCatalogPlaceholder')"
+                    @input="update('telegram_catalog_channel', ($event.target as HTMLInputElement).value)"
+                  >
+                </div>
+                <div class="space-y-1">
+                  <label class="ui-label">{{ t('games.telegramFilesChannel') }}</label>
+                  <input
+                    :value="settings.telegram_files_channel || ''"
+                    class="ui-input"
+                    :placeholder="t('games.telegramFilesPlaceholder')"
+                    @input="update('telegram_files_channel', ($event.target as HTMLInputElement).value)"
+                  >
+                </div>
+                <div class="space-y-1">
+                  <label class="ui-label">{{ t('games.telegramSplitVolumeMb') }}</label>
+                  <input
+                    :value="settings.telegram_split_volume_mb || 1900"
+                    type="number"
+                    min="256"
+                    max="4096"
+                    class="ui-input"
+                    @input="update('telegram_split_volume_mb', Number(($event.target as HTMLInputElement).value) || 1900)"
+                  >
+                  <p class="text-[10px] text-gray-500">{{ t('games.telegramSplitVolumeHint') }}</p>
+                </div>
+              </div>
             </div>
             <!-- 用同结构的标签占位，让按钮与输入框对齐，而不是被提示文案顶到格子底部 -->
             <div class="space-y-1 md:col-span-2">

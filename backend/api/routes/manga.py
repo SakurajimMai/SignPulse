@@ -87,6 +87,13 @@ class MangaSettingsRequest(BaseModel):
     sftp_password: str | None = None
     sftp_remote_dir: str | None = Field(default=None, max_length=200)
     sftp_public_base: str | None = Field(default=None, max_length=500)
+    s3_endpoint: str | None = Field(default=None, max_length=500)
+    s3_region: str | None = Field(default=None, max_length=80)
+    s3_bucket: str | None = Field(default=None, max_length=200)
+    s3_access_key: str | None = None
+    s3_secret_key: str | None = None
+    s3_public_base: str | None = Field(default=None, max_length=500)
+    s3_prefix: str | None = Field(default=None, max_length=200)
     site_publish_url: str | None = None
     site_publish_secret: str | None = None
     outbound_enabled: bool | None = None

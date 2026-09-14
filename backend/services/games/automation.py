@@ -15,6 +15,7 @@ from .catalog import catalog_has_source
 from .config import GamesSettings, load_games_settings
 from .paths import games_dirs
 from .telegram import discover_telegram_posts, resolve_account
+from .telegram_publish import telegram_publish_configured
 from .worker import (
     GamesBusyError,
     finalize_published_job,
@@ -93,7 +94,11 @@ def automation_requirements(settings: GamesSettings) -> dict[str, Any]:
         "wordpress": bool(
             settings.wp_url and settings.wp_user and settings.wp_app_password
         ),
-        "cloud": cloud_ready,
+        "cloud": cloud_ready
+        or (
+            bool(settings.telegram_publish_enabled)
+            and telegram_publish_configured(settings)
+        ),
         "sevenzip": bool(find_7z_bin()),
         "apate": bool(not settings.apate_enabled or apate_available(settings)),
     }
@@ -101,7 +106,7 @@ def automation_requirements(settings: GamesSettings) -> dict[str, Any]:
         "telegram_account": "Telegram 登录账号",
         "channels": "监听频道",
         "wordpress": "WordPress 账号与应用密码",
-        "cloud": "至少一个网盘上传目标",
+        "cloud": "至少一个网盘或 Telegram 频道发布",
         "sevenzip": "7z 工具",
         "apate": "Apate 工具",
     }

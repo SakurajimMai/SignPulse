@@ -118,7 +118,7 @@ environment:
 | `MANGA_OUTBOUND_TELEGRAM` | `true` | 运营频道是否同步频道采集 |
 | `MANGA_OUTBOUND_EHENTAI` | `true` | 运营频道是否同步 E-Hentai |
 | `MANGA_OUTBOUND_WNACG` | `true` | 运营频道是否同步 WNACG |
-| `MANGA_UPLOAD_TELEGRAM` | `imgbed` | 频道采集图片去向：`imgbed` / `ftp` / `sftp` |
+| `MANGA_UPLOAD_TELEGRAM` | `imgbed` | 频道采集图片去向：`imgbed` / `ftp` / `sftp` / `s3` / `r2` / `b2` |
 | `MANGA_UPLOAD_EHENTAI` | `imgbed` | E-Hentai 图片去向 |
 | `MANGA_UPLOAD_WNACG` | `imgbed` | WNACG 图片去向 |
 | `MANGA_FTP_HOST` | 空 | FTP 主机 |
@@ -133,6 +133,12 @@ environment:
 | `MANGA_SFTP_USERNAME` / `MANGA_SFTP_PASSWORD` | 空 | SFTP 账号 |
 | `MANGA_SFTP_REMOTE_DIR` | `manga` | SFTP 远程目录，同样按年/月/日/{uuid} 存放 |
 | `MANGA_SFTP_PUBLIC_BASE` | 空 | 对应远程目录的公网基址 |
+| `MANGA_S3_ENDPOINT` | 空 | S3 兼容 Endpoint。R2：`https://<accountid>.r2.cloudflarestorage.com`；B2：`https://s3.<region>.backblazeb2.com`；AWS 可留空 |
+| `MANGA_S3_REGION` | 空 | R2 默认 `auto`；B2 默认 `us-west-004`；AWS 默认 `us-east-1` |
+| `MANGA_S3_BUCKET` | 空 | Bucket 名 |
+| `MANGA_S3_ACCESS_KEY` / `MANGA_S3_SECRET_KEY` | 空 | 对象存储密钥（落盘加密） |
+| `MANGA_S3_PREFIX` | `manga` | 对象键前缀；文件为 `{prefix}/年/月/日/{uuid}/001.jpg` |
+| `MANGA_S3_PUBLIC_BASE` | 空 | 对应前缀目录的公网基址 |
 | `MANGA_WNACG_ENABLED` | `false` | 是否持续监听 WNACG（绅士漫画）分类列表 |
 | `MANGA_WNACG_BASE_URL` | `https://www.wnacg.com` | 站点或镜像，不要尾斜杠 |
 | `MANGA_WNACG_CATEGORIES` | `1` | 逗号分隔分类 id，如 `1,9,20`（同人誌漢化 / 單行本漢化 / 韓漫漢化） |

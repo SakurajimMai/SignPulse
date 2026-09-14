@@ -72,6 +72,10 @@ class GamesSettingsRequest(BaseModel):
     wp_status: str | None = Field(default=None, max_length=20)
     telegram_account_name: str | None = Field(default=None, max_length=80)
     telegram_source_channels: str | None = Field(default=None, max_length=1000)
+    telegram_publish_enabled: bool | None = None
+    telegram_catalog_channel: str | None = Field(default=None, max_length=80)
+    telegram_files_channel: str | None = Field(default=None, max_length=80)
+    telegram_split_volume_mb: int | None = Field(default=None, ge=256, le=4096)
     auto_publish_enabled: bool | None = None
     telegram_poll_seconds: int | None = Field(default=None, ge=10, le=3600)
     telegram_backfill_limit: int | None = Field(default=None, ge=0, le=100)
@@ -133,6 +137,7 @@ class PublishIn(BaseModel):
     status: str | None = Field(default=None, max_length=20)
     links: dict[str, str] | None = None
     clouds: list[str] | str | None = None
+    telegram_publish: bool | None = None
 
 
 def _settings():

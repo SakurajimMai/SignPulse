@@ -66,6 +66,7 @@ const cloudOptions = [
   { id: 'quark', labelKey: 'games.linkQuark' },
 ] as const
 const selectedClouds = ref<string[]>(cloudOptions.map((item) => item.id))
+const telegramPublish = ref(false)
 const busy = ref('')
 const uploading = ref(false)
 const jobId = ref('')
@@ -92,11 +93,14 @@ const selectedAccountMissing = computed(() => {
 const canPull = computed(
   () => telegramUrlValid.value && busy.value !== 'pull' && !running.value,
 )
+const telegramCatalogReady = computed(() =>
+  Boolean((props.settings?.telegram_catalog_channel || '').trim()),
+)
 const canPublish = computed(
   () =>
     Boolean(jobId.value) &&
     archives.value.length > 0 &&
-    selectedClouds.value.length > 0 &&
+    (selectedClouds.value.length > 0 || (telegramPublish.value && telegramCatalogReady.value)) &&
     busy.value !== 'publish' &&
     !running.value,
 )
@@ -114,6 +118,7 @@ const progressLabel = computed(() => {
   return `${current}/${total} ${job.value?.message || ''}`
 })
 const cloudLabel = (id: string) => {
+  if (id === 'telegram') return t('games.linkTelegram')
   const found = cloudOptions.find((item) => item.id === id)
   return found ? t(found.labelKey) : id
 }
@@ -152,6 +157,9 @@ const applyJob = async (next: GamesJob | null | undefined) => {
   if (next.pay_modo) payModo.value = next.pay_modo === 'points' ? 'points' : '0'
   if (next.apate != null) apate.value = Boolean(next.apate)
   if (next.pay_enabled != null) payEnabled.value = Boolean(next.pay_enabled)
+  if (typeof next.telegram_publish === 'boolean') {
+    telegramPublish.value = next.telegram_publish
+  }
   if (next.images) images.value = next.images
   if (next.archives) archives.value = next.archives
   if (next.images?.length && token) {
@@ -297,6 +305,7 @@ const publish = async () => {
       pack_password: packPassword.value.trim() || undefined,
       links,
       clouds: selectedClouds.value,
+      telegram_publish: telegramPublish.value,
     })
     toast.success(t('games.published'))
     emit('refresh-status')
@@ -345,6 +354,14 @@ watch(
     if (!packPassword.value && next.pack_password) {
       packPassword.value = next.pack_password
     }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.settings?.telegram_publish_enabled,
+  (value) => {
+    telegramPublish.value = Boolean(value)
   },
   { immediate: true },
 )
@@ -582,6 +599,11 @@ onUnmounted(() => {
               <span v-if="status && !cloudConfigured(item.id)" class="text-[10px] text-gray-400">{{ t('games.cloudNotConfigured') }}</span>
             </label>
           </div>
+          <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 border border-[var(--sp-border)] rounded px-2 py-1">
+            <input v-model="telegramPublish" type="checkbox" class="rounded border-gray-300">
+            {{ t('games.linkTelegram') }}
+            <span v-if="!telegramCatalogReady" class="text-[10px] text-gray-400">{{ t('games.cloudNotConfigured') }}</span>
+          </label>
         </div>
         <div class="space-y-1 md:col-span-2 text-[10px] text-gray-500">{{ t('games.manualLinks') }}</div>
         <div class="space-y-1"><label class="ui-label">{{ t('games.linkBaidu') }}</label><input v-model="manualBaidu" class="ui-input" :disabled="!selectedClouds.includes('baidu')"></div>

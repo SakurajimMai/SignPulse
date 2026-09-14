@@ -4,6 +4,8 @@
 
 | 日期 | 变更内容 |
 |------|----------|
+| 2026-09-14 | 游戏发布可选用自建公开 Telegram 频道：解压重打包后把文件发到文件频道、介绍频道发下载帖，网站付费区增加 Telegram 链接；网盘上传仍可选且默认行为不变。频道分卷大小可配（默认 1900MiB，Premium 可到 4096MiB），不影响网盘分卷 |
+| 2026-09-14 | 漫画采集上传增加 Amazon S3 / Cloudflare R2 / Backblaze B2（S3 兼容，凭证在频道采集页配置，路径仍按年/月/日/uuid） |
 | 2026-09-13 | 漫画采集支持按源选择图床 / FTP / SFTP；运营频道转发可分别开关频道采集、E-Hentai、WNACG |
 | 2026-09-13 | 漫画采集新增 WNACG（https://www.wnacg.com）二级栏目：可多选站点分类持续监听，相册图片经共用图床写入主站；配置、告警、目录过滤与 E-Hentai 栏目对齐 |
 | 2026-08-08 | 打磨：修复 TOTP 设置二维码 blob URL 泄漏（关闭/重新获取/卸载时统一 revoke，消除会话内累积）；UserProfileModal 两处 TOTP 输入补 inputmode=numeric 与 autocomplete=one-time-code（与登录页一致，移动端数字键盘 + 短信验证码自动填充）；sign_tasks 后台清理/运行任务的 create_logged_task logger 统一为模块级 `_service_logger`；quick-start 部署文档补端口说明（镜像默认监听 8080，改端口需同步 PORT 与映射）。后端 1269 测试全绿（覆盖 57.01%），前端 335 测试/typecheck/构建全绿，ruff 全绿 |

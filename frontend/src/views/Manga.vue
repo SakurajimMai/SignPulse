@@ -86,6 +86,8 @@ const {
     outbound_bot_token: '',
     ftp_password: '',
     sftp_password: '',
+    s3_access_key: '',
+    s3_secret_key: '',
   }),
   {
     isSaved: (key) => Boolean(settings.value?.[`${key}_set` as keyof MangaSettings]),
@@ -116,11 +118,20 @@ const uploadTarget = computed(() => settings.value?.upload_telegram || 'imgbed')
 const uploadOk = computed(() => {
   if (uploadTarget.value === 'ftp') return Boolean(status.value?.ftp_configured)
   if (uploadTarget.value === 'sftp') return Boolean(status.value?.sftp_configured)
+  if (uploadTarget.value === 's3' || uploadTarget.value === 'r2' || uploadTarget.value === 'b2') {
+    if ((uploadTarget.value === 'r2' || uploadTarget.value === 'b2') && !(settings.value?.s3_endpoint || '').trim()) {
+      return false
+    }
+    return Boolean(status.value?.object_configured)
+  }
   return Boolean(status.value?.imgbed_configured)
 })
 const uploadLabel = computed(() => {
   if (uploadTarget.value === 'ftp') return t('manga.uploadFtp')
   if (uploadTarget.value === 'sftp') return t('manga.uploadSftp')
+  if (uploadTarget.value === 's3') return t('manga.uploadS3')
+  if (uploadTarget.value === 'r2') return t('manga.uploadR2')
+  if (uploadTarget.value === 'b2') return t('manga.uploadB2')
   return t('manga.imgbed')
 })
 
@@ -263,6 +274,11 @@ const saveSettings = async () => {
       sftp_username: settings.value.sftp_username || '',
       sftp_remote_dir: settings.value.sftp_remote_dir || 'manga',
       sftp_public_base: settings.value.sftp_public_base || '',
+      s3_endpoint: settings.value.s3_endpoint || '',
+      s3_region: settings.value.s3_region || '',
+      s3_bucket: settings.value.s3_bucket || '',
+      s3_public_base: settings.value.s3_public_base || '',
+      s3_prefix: settings.value.s3_prefix || 'manga',
       site_publish_url: settings.value.site_publish_url,
       outbound_enabled: Boolean(settings.value.outbound_enabled),
       outbound_telegram: settings.value.outbound_telegram !== false,
@@ -606,6 +622,16 @@ onUnmounted(() => {
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpPassword') }}</label><SecretInput v-model="secretDraft.sftp_password" :revealed="revealSecrets.sftp_password" :loading="secretsLoading" :placeholder="settings.sftp_password_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('sftp_password')" /></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpRemoteDir') }}</label><input :value="settings.sftp_remote_dir || 'manga'" class="ui-input" placeholder="manga" @input="update('sftp_remote_dir', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.sftpPublicBase') }}</label><input :value="settings.sftp_public_base || ''" class="ui-input" placeholder="https://cdn.example.com/manga" @input="update('sftp_public_base', ($event.target as HTMLInputElement).value)"></div>
+          <div class="lg:col-span-2 pt-2"><div class="ui-section-label mb-2">{{ t('manga.objectStorageTitle') }}</div>
+            <p class="text-[10px] text-gray-500">{{ t('manga.objectStorageHint') }}</p>
+          </div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3Endpoint') }}</label><input :value="settings.s3_endpoint || ''" class="ui-input" :placeholder="t('manga.s3EndpointPlaceholder')" @input="update('s3_endpoint', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3Region') }}</label><input :value="settings.s3_region || ''" class="ui-input" :placeholder="t('manga.s3RegionPlaceholder')" @input="update('s3_region', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3Bucket') }}</label><input :value="settings.s3_bucket || ''" class="ui-input" placeholder="manga-images" @input="update('s3_bucket', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3AccessKey') }}</label><SecretInput v-model="secretDraft.s3_access_key" :revealed="revealSecrets.s3_access_key" :loading="secretsLoading" :placeholder="settings.s3_access_key_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('s3_access_key')" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3SecretKey') }}</label><SecretInput v-model="secretDraft.s3_secret_key" :revealed="revealSecrets.s3_secret_key" :loading="secretsLoading" :placeholder="settings.s3_secret_key_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('s3_secret_key')" /></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3Prefix') }}</label><input :value="settings.s3_prefix || 'manga'" class="ui-input" placeholder="manga" @input="update('s3_prefix', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1.5"><label class="ui-label">{{ t('manga.s3PublicBase') }}</label><input :value="settings.s3_public_base || ''" class="ui-input" placeholder="https://cdn.example.com/manga" @input="update('s3_public_base', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.siteUrl') }}</label><input :value="settings.site_publish_url" class="ui-input" placeholder="https://example.com/api/manga/publish" @input="update('site_publish_url', ($event.target as HTMLInputElement).value)"></div>
           <div class="space-y-1.5"><label class="ui-label">{{ t('manga.siteSecret') }}</label><SecretInput v-model="secretDraft.site_publish_secret" :revealed="revealSecrets.site_publish_secret" :loading="secretsLoading" :placeholder="settings.site_publish_secret_set ? t('manga.keepExisting') : t('manga.enterSecret')" @toggle="toggleSecret('site_publish_secret')" /></div>
 

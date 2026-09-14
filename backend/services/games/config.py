@@ -58,6 +58,8 @@ SPLIT_VOLUME_MB_DEFAULT = 4096
 SPLIT_VOLUME_MB_MIN = 256
 SPLIT_VOLUME_MB_MAX = 4096
 LEGACY_SPLIT_VOLUME_MB = 3800
+# 普通 Telegram 号约 2GB；Premium 可调到 4096。
+TELEGRAM_SPLIT_VOLUME_MB_DEFAULT = 1900
 
 
 def _env(*names: str, default: str = "") -> str:
@@ -141,6 +143,10 @@ class GamesSettings:
     wp_status: str = "publish"
     telegram_account_name: str = ""
     telegram_source_channels: str = "Zhzbzx"
+    telegram_publish_enabled: bool = False
+    telegram_catalog_channel: str = ""
+    telegram_files_channel: str = ""
+    telegram_split_volume_mb: int = TELEGRAM_SPLIT_VOLUME_MB_DEFAULT
     auto_publish_enabled: bool = False
     telegram_poll_seconds: int = 30
     telegram_backfill_limit: int = 0
@@ -209,6 +215,12 @@ class GamesSettings:
             ),
             telegram_source_channels=_env("GAMES_TELEGRAM_CHANNELS", default="Zhzbzx")
             or "Zhzbzx",
+            telegram_publish_enabled=_bool("GAMES_TELEGRAM_PUBLISH_ENABLED", False),
+            telegram_catalog_channel=_env("GAMES_TELEGRAM_CATALOG_CHANNEL"),
+            telegram_files_channel=_env("GAMES_TELEGRAM_FILES_CHANNEL"),
+            telegram_split_volume_mb=normalize_telegram_split_volume_mb(
+                _int("GAMES_TELEGRAM_SPLIT_VOLUME_MB", TELEGRAM_SPLIT_VOLUME_MB_DEFAULT)
+            ),
             auto_publish_enabled=_bool("GAMES_AUTO_PUBLISH_ENABLED", False),
             telegram_poll_seconds=max(
                 10, min(_int("GAMES_TELEGRAM_POLL_SECONDS", 30), 3600)
@@ -313,6 +325,14 @@ def normalize_split_volume_mb(raw: Any) -> int:
     return max(SPLIT_VOLUME_MB_MIN, min(value, SPLIT_VOLUME_MB_MAX))
 
 
+def normalize_telegram_split_volume_mb(raw: Any) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = TELEGRAM_SPLIT_VOLUME_MB_DEFAULT
+    return max(SPLIT_VOLUME_MB_MIN, min(value, SPLIT_VOLUME_MB_MAX))
+
+
 def parse_int_list(raw: str | None) -> list[int]:
     values: list[int] = []
     for item in split_csv(raw):
@@ -353,6 +373,9 @@ def load_games_settings() -> GamesSettings:
             values[name] = value
     values["data_dir"] = str(_base_dir())
     values["split_volume_mb"] = normalize_split_volume_mb(values.get("split_volume_mb"))
+    values["telegram_split_volume_mb"] = normalize_telegram_split_volume_mb(
+        values.get("telegram_split_volume_mb")
+    )
     for key in (
         "baidu_remote_dir",
         "pikpak_remote_dir",
@@ -444,6 +467,11 @@ def save_games_settings(updates: dict[str, Any]) -> GamesSettings:
         clean["telegram_source_channels"] = ",".join(
             split_csv(str(clean["telegram_source_channels"]))
         )
+    for key in ("telegram_catalog_channel", "telegram_files_channel"):
+        if key in clean:
+            from backend.services.games.telegram_publish import normalize_channel_ref
+
+            clean[key] = normalize_channel_ref(str(clean[key] or ""))[:80]
     for key, default, lower, upper in (
         ("telegram_poll_seconds", 30, 10, 3600),
         ("telegram_backfill_limit", 0, 0, 100),
@@ -456,6 +484,10 @@ def save_games_settings(updates: dict[str, Any]) -> GamesSettings:
                 clean[key] = default
     if "split_volume_mb" in clean:
         clean["split_volume_mb"] = normalize_split_volume_mb(clean["split_volume_mb"])
+    if "telegram_split_volume_mb" in clean:
+        clean["telegram_split_volume_mb"] = normalize_telegram_split_volume_mb(
+            clean["telegram_split_volume_mb"]
+        )
     for key in (
         "baidu_remote_dir",
         "pikpak_remote_dir",

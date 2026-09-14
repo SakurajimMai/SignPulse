@@ -21,5 +21,8 @@ const { t } = useI18n()
     <option value="imgbed">{{ t('manga.uploadImgbed') }}</option>
     <option value="ftp">{{ t('manga.uploadFtp') }}</option>
     <option value="sftp">{{ t('manga.uploadSftp') }}</option>
+    <option value="s3">{{ t('manga.uploadS3') }}</option>
+    <option value="r2">{{ t('manga.uploadR2') }}</option>
+    <option value="b2">{{ t('manga.uploadB2') }}</option>
   </select>
 </template>

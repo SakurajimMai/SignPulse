@@ -27,6 +27,10 @@ export interface GamesSettings {
   wp_status: string
   telegram_account_name?: string
   telegram_source_channels?: string
+  telegram_publish_enabled?: boolean
+  telegram_catalog_channel?: string
+  telegram_files_channel?: string
+  telegram_split_volume_mb?: number
   auto_publish_enabled?: boolean
   telegram_poll_seconds?: number
   telegram_backfill_limit?: number
@@ -117,6 +121,9 @@ export interface GamesJob {
   archives?: Array<{ path: string; name?: string; size?: number }>
   archive_members?: Array<{ path: string; name?: string; size?: number }>
   links?: Record<string, string>
+  telegram_publish?: boolean
+  telegram_catalog_url?: string
+  telegram_file_urls?: string[]
   share_pwd?: string
   cloud_errors?: Record<string, string>
   public_url?: string | null
@@ -127,7 +134,7 @@ export interface GamesJob {
   updated_at?: string
 }
 
-export interface GamesRuntimeStatus extends GamesJob {
+export interface GamesRuntimeStatus extends Omit<GamesJob, 'telegram_publish'> {
   configured?: boolean
   wp?: { ok?: boolean; configured?: boolean; error?: string; user?: string }
   sevenzip?: { ok?: boolean; bin?: string | null }
@@ -140,6 +147,13 @@ export interface GamesRuntimeStatus extends GamesJob {
     openlist?: GamesCloudStatus
   }
   telegram_account?: string
+  telegram_channel?: {
+    enabled?: boolean
+    configured?: boolean
+    catalog_channel?: string
+    files_channel?: string
+  }
+  telegram_publish?: boolean
   keepalive?: GamesKeepaliveStatus
   automation?: GamesAutomationStatus
 }
@@ -311,6 +325,7 @@ export const publishGamesJob = (
     status?: string
     links?: Record<string, string>
     clouds?: string[]
+    telegram_publish?: boolean
   },
 ) =>
   request<GamesJob>(

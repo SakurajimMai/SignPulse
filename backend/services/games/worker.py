@@ -30,6 +30,14 @@ from .keepalive import load_keepalive_state
 from .parser import clean_game_summary
 from .paths import games_dirs, relative_to_games, resolve_games_path
 from .telegram import pull_telegram_post, resolve_account
+from .telegram_publish import (
+    parts_fit_telegram,
+    prepare_telegram_parts,
+    publish_game_to_channels,
+    telegram_dest_name,
+    telegram_publish_configured,
+    telegram_publish_wanted,
+)
 from .wordpress import (
     build_post_html,
     create_post,
@@ -236,6 +244,132 @@ def _existing_packed_parts(
     return parts
 
 
+def _existing_telegram_parts(settings: GamesSettings, job: dict[str, Any]) -> list[Path]:
+    parts: list[Path] = []
+    for item in job.get("telegram_packed_parts") or []:
+        raw = item.get("path") if isinstance(item, dict) else item
+        if not raw:
+            continue
+        path = resolve_games_path(settings, str(raw))
+        if path.is_file():
+            parts.append(path)
+    return parts
+
+
+def _job_image_paths(settings: GamesSettings, job: dict[str, Any]) -> list[Path]:
+    paths: list[Path] = []
+    for item in job.get("images") or []:
+        raw = item.get("path") if isinstance(item, dict) else str(item)
+        if not raw:
+            continue
+        path = resolve_games_path(settings, str(raw))
+        if path.is_file():
+            paths.append(path)
+    return paths
+
+
+def _telegram_catalog_url(job: dict[str, Any]) -> str:
+    links = job.get("links") if isinstance(job.get("links"), dict) else {}
+    return str(links.get("telegram") or job.get("telegram_catalog_url") or "").strip()
+
+
+def _telegram_file_urls(job: dict[str, Any]) -> list[str]:
+    raw = job.get("telegram_file_urls") or []
+    if not isinstance(raw, list):
+        return []
+    return [str(url).strip() for url in raw if str(url).strip()]
+
+
+def _should_clean_extract_root(
+    settings: GamesSettings,
+    job: dict[str, Any],
+    payload: dict[str, Any],
+    packed_parts: list[Path],
+) -> bool:
+    if not telegram_publish_wanted(settings, payload, job):
+        return True
+    if _telegram_catalog_url(job):
+        return True
+    if _existing_telegram_parts(settings, job):
+        return True
+    if packed_parts and parts_fit_telegram(packed_parts, settings=settings):
+        return True
+    return False
+
+
+async def _publish_telegram_optional(
+    settings: GamesSettings,
+    job: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    packed_parts: list[Path],
+    extract_root: Path | None,
+    pack_password: str,
+    title: str,
+    summary: str,
+    progress=None,
+) -> str:
+    """成功返回介绍帖 URL；跳过返回空串；失败写入 cloud_errors.telegram。"""
+    existing_url = _telegram_catalog_url(job)
+    if existing_url:
+        return existing_url
+    if not telegram_publish_wanted(settings, payload, job):
+        return ""
+    if not telegram_publish_configured(settings):
+        errors = dict(job.get("cloud_errors") or {})
+        errors["telegram"] = "未填写介绍频道"
+        job["cloud_errors"] = errors
+        return ""
+    try:
+        parts = _existing_telegram_parts(settings, job)
+        if not parts:
+            dest = packed_parts[0].parent / "telegram" / telegram_dest_name(title)
+            parts = prepare_telegram_parts(
+                packed_parts,
+                extract_root=extract_root,
+                dest=dest,
+                pack_password=pack_password,
+                settings=settings,
+            )
+            job["telegram_packed_parts"] = [
+                {
+                    "path": relative_to_games(settings, part),
+                    "name": part.name,
+                    "size": part.stat().st_size,
+                }
+                for part in parts
+            ]
+
+        def persist_file_urls(urls: list[str]) -> None:
+            job["telegram_file_urls"] = list(urls)
+
+        result = await publish_game_to_channels(
+            settings,
+            title=title,
+            summary=summary,
+            pack_password=pack_password,
+            file_paths=parts,
+            image_paths=_job_image_paths(settings, job),
+            account=str(job.get("account") or payload.get("account") or ""),
+            file_urls=_telegram_file_urls(job) or None,
+            on_file_urls=persist_file_urls,
+            progress=progress,
+        )
+        url = str(result.get("catalog_url") or "")
+        job["telegram_catalog_url"] = url
+        job["telegram_file_urls"] = list(result.get("file_urls") or [])
+        errors = dict(job.get("cloud_errors") or {})
+        errors.pop("telegram", None)
+        job["cloud_errors"] = errors
+        return url
+    except Exception as exc:
+        logger.exception("游戏频道发布失败")
+        errors = dict(job.get("cloud_errors") or {})
+        errors["telegram"] = str(exc)
+        job["cloud_errors"] = errors
+        return ""
+
+
 def _missing_configured_clouds(
     settings: GamesSettings, job: dict[str, Any], payload: dict[str, Any]
 ) -> list[str]:
@@ -324,6 +458,13 @@ async def probe_status(settings: GamesSettings) -> dict[str, Any]:
         ),
         "wp": wp,
         "telegram_account": account,
+        "telegram_channel": {
+            "enabled": bool(settings.telegram_publish_enabled),
+            "configured": telegram_publish_configured(settings),
+            "catalog_channel": settings.telegram_catalog_channel,
+            "files_channel": settings.telegram_files_channel
+            or settings.telegram_catalog_channel,
+        },
         **tools,
         "categories": settings.category_ids,
     }
@@ -403,11 +544,18 @@ class GamesJobRunner:
             if job.get("wp_id"):
                 missing = _missing_configured_clouds(settings, job, payload)
                 packed = _existing_packed_parts(settings, job)
-                if missing and packed:
+                telegram_missing = telegram_publish_wanted(
+                    settings, payload, job
+                ) and not _telegram_catalog_url(job)
+                if packed and (missing or telegram_missing):
                     job["running"] = True
                     job["stage"] = "queued"
                     job["error"] = ""
-                    job["message"] = "正在补传失败的网盘"
+                    job["message"] = (
+                        "正在补传失败的网盘"
+                        if missing
+                        else "正在补传 Telegram 频道"
+                    )
                     self._cancel = asyncio.Event()
                     self._touch(settings, job)
                     self._task = asyncio.create_task(
@@ -815,55 +963,87 @@ class GamesJobRunner:
         try:
             title = str(job.get("title") or "").strip() or "未命名游戏"
             apate_on = bool(job.get("apate", settings.apate_enabled))
-            prepare_disguise, disguise_dir, baidu_names = self._disguise_prepare(
-                settings,
-                job,
-                title=title,
-                apate_on=apate_on,
-                dest_dir=packed_parts[0].parent,
-            )
-
-            async def cloud_progress(
-                target: str, current: int, total: int, message: str
-            ) -> None:
-                await self._progress(settings, job, "uploading", current, total, message)
-
-            await self._progress(
-                settings, job, "uploading", 0, len(missing), "开始补传网盘"
-            )
-
-            async def persist_upload(partial: dict[str, Any]) -> None:
-                _apply_cloud_result(job, partial, apate_on=apate_on)
-                job["baidu_upload_names"] = baidu_names
-                self._touch(settings, job)
-
-            uploaded = await upload_targets(
-                settings,
-                title=title,
-                archive_parts=packed_parts,
-                prepare_baidu=prepare_disguise,
-                prepare_disguise=prepare_disguise,
-                only=missing,
-                progress=cloud_progress,
-                share_pwd=str(job.get("share_pwd") or "") or None,
-                on_update=persist_upload,
-            )
             links = dict(job.get("links") or {})
-            links.update(uploaded.get("links") or {})
-            errors = {
-                key: value
-                for key, value in (job.get("cloud_errors") or {}).items()
-                if key not in (uploaded.get("links") or {})
-            }
-            errors.update(uploaded.get("errors") or {})
-            job["links"] = links
-            job["cloud_errors"] = errors
-            job["baidu_upload_names"] = baidu_names
-            if uploaded.get("share_pwd") and not job.get("share_pwd"):
-                job["share_pwd"] = uploaded.get("share_pwd")
-            folders = dict(job.get("remote_folders") or {})
-            folders.update(uploaded.get("folders") or {})
-            job["remote_folders"] = folders
+            disguise_dir = None
+            if missing:
+                prepare_disguise, disguise_dir, baidu_names = self._disguise_prepare(
+                    settings,
+                    job,
+                    title=title,
+                    apate_on=apate_on,
+                    dest_dir=packed_parts[0].parent,
+                )
+
+                async def cloud_progress(
+                    target: str, current: int, total: int, message: str
+                ) -> None:
+                    await self._progress(settings, job, "uploading", current, total, message)
+
+                await self._progress(
+                    settings, job, "uploading", 0, len(missing), "开始补传网盘"
+                )
+
+                async def persist_upload(partial: dict[str, Any]) -> None:
+                    _apply_cloud_result(job, partial, apate_on=apate_on)
+                    job["baidu_upload_names"] = baidu_names
+                    self._touch(settings, job)
+
+                uploaded = await upload_targets(
+                    settings,
+                    title=title,
+                    archive_parts=packed_parts,
+                    prepare_baidu=prepare_disguise,
+                    prepare_disguise=prepare_disguise,
+                    only=missing,
+                    progress=cloud_progress,
+                    share_pwd=str(job.get("share_pwd") or "") or None,
+                    on_update=persist_upload,
+                )
+                links = dict(job.get("links") or {})
+                links.update(uploaded.get("links") or {})
+                errors = {
+                    key: value
+                    for key, value in (job.get("cloud_errors") or {}).items()
+                    if key not in (uploaded.get("links") or {})
+                }
+                errors.update(uploaded.get("errors") or {})
+                job["links"] = links
+                job["cloud_errors"] = errors
+                job["baidu_upload_names"] = baidu_names
+                if uploaded.get("share_pwd") and not job.get("share_pwd"):
+                    job["share_pwd"] = uploaded.get("share_pwd")
+                folders = dict(job.get("remote_folders") or {})
+                folders.update(uploaded.get("folders") or {})
+                job["remote_folders"] = folders
+            if telegram_publish_wanted(settings, payload, job) and not _telegram_catalog_url(job):
+                extract_root = games_dirs(settings).extracted / str(job.get("id") or "")
+                if not extract_root.exists():
+                    extract_root = None
+
+                async def telegram_retry_progress(
+                    _target: str, current: int, total: int, message: str
+                ) -> None:
+                    await self._progress(settings, job, "telegram", current, total, message)
+
+                telegram_url = await _publish_telegram_optional(
+                    settings,
+                    job,
+                    payload,
+                    packed_parts=packed_parts,
+                    extract_root=extract_root,
+                    pack_password=str(job.get("pack_password") or settings.pack_password or ""),
+                    title=title,
+                    summary=clean_game_summary(str(job.get("summary") or "")),
+                    progress=telegram_retry_progress,
+                )
+                if telegram_url:
+                    links["telegram"] = telegram_url
+                    job["links"] = links
+                if extract_root is not None and _should_clean_extract_root(
+                    settings, job, payload, packed_parts
+                ):
+                    await asyncio.to_thread(shutil.rmtree, extract_root, True)
+                    job["extracted_cleaned"] = True
             await self._refresh_published_job(settings, job, payload)
             _alert_cloud_errors(job)
             if settings.cleanup_after_publish and not job.get("cloud_errors"):
@@ -988,6 +1168,8 @@ class GamesJobRunner:
                 "pay_enabled": pay_enabled,
                 "apate": apate_on,
                 "clouds": selected_clouds,
+                "pack_password": pack_password,
+                "telegram_publish": telegram_publish_wanted(settings, payload, job),
             }
         )
 
@@ -1068,10 +1250,38 @@ class GamesJobRunner:
             job["split_volume_mb"] = settings.split_volume_mb
             self._touch(settings, job)
 
-            if extract_root.exists():
-                await asyncio.to_thread(shutil.rmtree, extract_root, True)
-                job["extracted_cleaned"] = True
-                self._touch(settings, job)
+        telegram_url = ""
+        if telegram_publish_wanted(settings, payload, job):
+
+            async def telegram_progress(
+                _target: str, current: int, total: int, message: str
+            ) -> None:
+                await self._progress(settings, job, "telegram", current, total, message)
+
+            telegram_url = await _publish_telegram_optional(
+                settings,
+                job,
+                payload,
+                packed_parts=packed_parts,
+                extract_root=extract_root,
+                pack_password=pack_password,
+                title=title,
+                summary=summary,
+                progress=telegram_progress,
+            )
+            if telegram_url:
+                links = dict(job.get("links") or {})
+                links["telegram"] = telegram_url
+                job["links"] = links
+            self._touch(settings, job)
+        if (
+            extract_root.exists()
+            and not job.get("extracted_cleaned")
+            and _should_clean_extract_root(settings, job, payload, packed_parts)
+        ):
+            await asyncio.to_thread(shutil.rmtree, extract_root, True)
+            job["extracted_cleaned"] = True
+            self._touch(settings, job)
 
         baidu_key = baidu_title_folder(title)
         disguise_dir = packed_parts[0].parent / ".disguise-upload"
@@ -1161,6 +1371,10 @@ class GamesJobRunner:
                 )
                 job["baidu_upload_names"] = baidu_names
                 deferred = []
+                self._touch(settings, job)
+            if telegram_url:
+                links["telegram"] = telegram_url
+                job["links"] = links
                 self._touch(settings, job)
             if not links:
                 detail = "；".join(

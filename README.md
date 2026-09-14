@@ -49,7 +49,7 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页中管
 | **时区管理** | Web 面板可切换时区（支持 22 个常用时区），调度器自动适配 |
 | **通知推送** | 任务失败通知、账号失效通知、登录通知、关键词命中通知 |
 | **运维能力** | Docker 部署、持久化数据、健康检查、配置导入导出、日志可视化 |
-| **漫画采集** | Telegram 群组过滤、E-Hentai / WNACG 站点源、按源选择图床/FTP/SFTP、运营频道可按源同步、AnimeStream 发布 |
+| **漫画采集** | Telegram 群组过滤、E-Hentai / WNACG 站点源、按源选择图床/FTP/SFTP/S3/R2/B2、运营频道可按源同步、AnimeStream 发布 |
 
 ---
 

@@ -48,6 +48,11 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - Bot 测试发送、任务成功通知（全局 + 任务级开关）、静默时段
 - 监听推送支持 Server酱（任务表单通道）
 
+### 游戏发布
+
+- 监听 Zhzbzx 等来源频道，解压去广告后重打包，可选上传百度/PikPak/TeraBox/夸克
+- 可选发布到自建公开 Telegram 介绍频道 + 文件频道（网站付费下载可只挂 `t.me` 链接）；频道分卷大小可配（普通号约 2GB，Premium 可 4GB），网盘流程默认不变
+
 ### 漫画采集子模块
 
 - 在同一套 SignPulse 控制台配置并启停 Telegram 漫画监听
@@ -60,7 +65,7 @@ TG-SignPulse 是 Telegram 多账号自动化管理面板，把签到、消息交
 - 解析 `[作者] 标题 #标签`，标题去除方括号内容，第一张上传图片自动作为封面
 - 图片上传到 ImgBed 后删除本地临时文件，再通过 `POST /api/manga/publish` 发布到 AnimeStream
 - 二级栏目 WNACG（https://www.wnacg.com）可指定分类持续采集
-- 频道采集 / E-Hentai / WNACG 可分别把图片传到图床、FTP 或 SFTP
+- 频道采集 / E-Hentai / WNACG 可分别把图片传到图床、FTP、SFTP 或对象存储（Amazon S3 / Cloudflare R2 / Backblaze B2）
 - 运营频道转发可分别开关：只同步频道采集、E-Hentai 或 WNACG
 - 独立漫画 SQLite 目录，不占用签到任务的数据库
 

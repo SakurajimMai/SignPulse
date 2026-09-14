@@ -101,11 +101,20 @@ const uploadTarget = computed(() => settings.value?.upload_wnacg || 'imgbed')
 const uploadOk = computed(() => {
   if (uploadTarget.value === 'ftp') return Boolean(status.value?.ftp_configured)
   if (uploadTarget.value === 'sftp') return Boolean(status.value?.sftp_configured)
+  if (uploadTarget.value === 's3' || uploadTarget.value === 'r2' || uploadTarget.value === 'b2') {
+    if ((uploadTarget.value === 'r2' || uploadTarget.value === 'b2') && !(settings.value?.s3_endpoint || '').trim()) {
+      return false
+    }
+    return Boolean(status.value?.object_configured)
+  }
   return Boolean(status.value?.imgbed_configured)
 })
 const uploadLabel = computed(() => {
   if (uploadTarget.value === 'ftp') return t('manga.uploadFtp')
   if (uploadTarget.value === 'sftp') return t('manga.uploadSftp')
+  if (uploadTarget.value === 's3') return t('manga.uploadS3')
+  if (uploadTarget.value === 'r2') return t('manga.uploadR2')
+  if (uploadTarget.value === 'b2') return t('manga.uploadB2')
   return t('manga.imgbed')
 })
 </script>

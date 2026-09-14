@@ -180,6 +180,7 @@ DOWNLOAD_LABELS = (
     ("pikpak", "PikPak"),
     ("terabox", "TeraBox"),
     ("quark", "夸克网盘"),
+    ("telegram", "Telegram 频道"),
     ("other", "其它"),
 )
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")

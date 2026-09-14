@@ -31,6 +31,8 @@ SECRET_FIELDS = {
     "hmw_s3_secret_key",
     "ftp_password",
     "sftp_password",
+    "s3_access_key",
+    "s3_secret_key",
 }
 MASKED_SECRET = "********"
 # 单话页数上限。长篇 IF 线可达数百页；环境里常用 2000，API 必须放得下。
@@ -71,7 +73,7 @@ def _float(name: str, default: float) -> float:
 
 def _upload_target(name: str, default: str = "imgbed") -> str:
     raw = (_env(name, default=default) or default).strip().lower()
-    return raw if raw in {"imgbed", "ftp", "sftp"} else "imgbed"
+    return raw if raw in {"imgbed", "ftp", "sftp", "s3", "r2", "b2"} else "imgbed"
 
 
 def _base_dir() -> Path:
@@ -137,6 +139,13 @@ class MangaSettings:
     sftp_password: str = ""
     sftp_remote_dir: str = "manga"
     sftp_public_base: str = ""
+    s3_endpoint: str = ""
+    s3_region: str = ""
+    s3_bucket: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_public_base: str = ""
+    s3_prefix: str = "manga"
     site_publish_url: str = ""
     site_publish_secret: str = ""
     outbound_enabled: bool = False
@@ -255,6 +264,13 @@ class MangaSettings:
             sftp_password=_env("MANGA_SFTP_PASSWORD"),
             sftp_remote_dir=_env("MANGA_SFTP_REMOTE_DIR", default="manga") or "manga",
             sftp_public_base=_env("MANGA_SFTP_PUBLIC_BASE").rstrip("/"),
+            s3_endpoint=_env("MANGA_S3_ENDPOINT").rstrip("/"),
+            s3_region=_env("MANGA_S3_REGION"),
+            s3_bucket=_env("MANGA_S3_BUCKET"),
+            s3_access_key=_env("MANGA_S3_ACCESS_KEY"),
+            s3_secret_key=_env("MANGA_S3_SECRET_KEY"),
+            s3_public_base=_env("MANGA_S3_PUBLIC_BASE").rstrip("/"),
+            s3_prefix=_env("MANGA_S3_PREFIX", default="manga") or "manga",
             site_publish_url=_env("SITE_PUBLISH_URL").rstrip("/"),
             site_publish_secret=_env("SITE_PUBLISH_SECRET"),
             outbound_enabled=_bool("MANGA_OUTBOUND_ENABLED", False),
@@ -472,6 +488,24 @@ def save_manga_settings(updates: dict[str, Any]) -> MangaSettings:
             clean["sftp_port"] = max(1, min(int(clean["sftp_port"] or 22), 65535))
         except (TypeError, ValueError):
             clean["sftp_port"] = 22
+    if "s3_endpoint" in clean:
+        endpoint = str(clean["s3_endpoint"] or "").strip().rstrip("/")
+        if endpoint and not endpoint.startswith(("http://", "https://")):
+            endpoint = f"https://{endpoint}"
+        clean["s3_endpoint"] = endpoint[:500]
+    if "s3_region" in clean:
+        clean["s3_region"] = str(clean["s3_region"] or "").strip()[:80]
+    if "s3_bucket" in clean:
+        clean["s3_bucket"] = str(clean["s3_bucket"] or "").strip()[:200]
+    if "s3_access_key" in clean:
+        clean["s3_access_key"] = str(clean["s3_access_key"] or "")
+    if "s3_secret_key" in clean:
+        clean["s3_secret_key"] = str(clean["s3_secret_key"] or "")
+    if "s3_public_base" in clean:
+        clean["s3_public_base"] = str(clean["s3_public_base"] or "").strip().rstrip("/")
+    if "s3_prefix" in clean:
+        prefix = str(clean["s3_prefix"] or "").strip().replace("\\", "/").strip("/")
+        clean["s3_prefix"] = prefix or "manga"
     if "ehentai_search" in clean:
         clean["ehentai_search"] = str(clean["ehentai_search"] or "")[:4000]
     if "ehentai_cats" in clean:

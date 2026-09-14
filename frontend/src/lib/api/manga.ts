@@ -51,6 +51,7 @@ export interface MangaRuntimeStatus {
   imgbed_configured: boolean
   ftp_configured?: boolean
   sftp_configured?: boolean
+  object_configured?: boolean
   upload_telegram?: string
   upload_ehentai?: string
   upload_wnacg?: string
@@ -119,6 +120,15 @@ export interface MangaSettings {
   sftp_password_set?: boolean
   sftp_remote_dir?: string
   sftp_public_base?: string
+  s3_endpoint?: string
+  s3_region?: string
+  s3_bucket?: string
+  s3_access_key?: string | null
+  s3_access_key_set?: boolean
+  s3_secret_key?: string | null
+  s3_secret_key_set?: boolean
+  s3_public_base?: string
+  s3_prefix?: string
   site_publish_url: string
   site_publish_secret?: string | null
   site_publish_secret_set?: boolean

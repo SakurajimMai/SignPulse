@@ -1,4 +1,4 @@
-"""按采集源把图片发到图床 / FTP / SFTP。"""
+"""按采集源把图片发到图床 / FTP / SFTP / S3 兼容对象存储。"""
 
 from __future__ import annotations
 
@@ -24,9 +24,18 @@ from .imgbed import ImgBedClient, ImgBedError, prepare_upload_image
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_TARGETS = ("imgbed", "ftp", "sftp")
+OBJECT_TARGETS = ("s3", "r2", "b2")
+UPLOAD_TARGETS = ("imgbed", "ftp", "sftp") + OBJECT_TARGETS
 UPLOAD_SOURCES = ("telegram", "ehentai", "wnacg")
 OUTBOUND_SOURCES = UPLOAD_SOURCES
+_OBJECT_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".avif": "image/avif",
+}
 
 
 class MediaStoreError(RuntimeError):
@@ -63,12 +72,61 @@ def sftp_configured(settings: MangaSettings) -> bool:
     )
 
 
+def object_endpoint(settings: MangaSettings) -> str:
+    raw = str(settings.s3_endpoint or "").strip()
+    if raw and not raw.startswith(("http://", "https://")):
+        raw = f"https://{raw}"
+    return raw.rstrip("/")
+
+
+def object_configured(settings: MangaSettings) -> bool:
+    return bool(
+        (settings.s3_bucket or "").strip()
+        and (settings.s3_access_key or "").strip()
+        and (settings.s3_secret_key or "").strip()
+        and (settings.s3_public_base or "").strip()
+    )
+
+
+_B2_ENDPOINT_REGION = re.compile(
+    r"(?:^https?://)?s3\.([a-z0-9-]+)\.backblazeb2\.com(?:[:/]|$)",
+    re.I,
+)
+
+
+def object_region(settings: MangaSettings, target: str) -> str:
+    raw = str(settings.s3_region or "").strip()
+    if raw:
+        return raw
+    if target == "r2":
+        return "auto"
+    if target == "b2":
+        match = _B2_ENDPOINT_REGION.search(object_endpoint(settings))
+        if match:
+            return match.group(1)
+        return "us-west-004"
+    return "us-east-1"
+
+
+def object_addressing(endpoint: str, target: str) -> str:
+    text = (endpoint or "").casefold()
+    if target == "b2" or "backblazeb2.com" in text:
+        return "virtual"
+    return "auto"
+
+
 def upload_configured(settings: MangaSettings, source: str) -> bool:
     target = upload_target_for(settings, source)
     if target == "ftp":
         return ftp_configured(settings)
     if target == "sftp":
         return sftp_configured(settings)
+    if target in OBJECT_TARGETS:
+        if not object_configured(settings):
+            return False
+        if target in ("r2", "b2") and not object_endpoint(settings):
+            return False
+        return True
     return bool((settings.cfbed_upload_url or "").strip())
 
 
@@ -79,6 +137,10 @@ def upload_missing_message(settings: MangaSettings, source: str) -> str:
         return f"请先配置 FTP（主机、用户名、公网基址），{label} 当前走 FTP"
     if target == "sftp":
         return f"请先配置 SFTP（主机、用户名、公网基址），{label} 当前走 SFTP"
+    if target in OBJECT_TARGETS:
+        kind = {"s3": "Amazon S3", "r2": "Cloudflare R2", "b2": "Backblaze B2"}[target]
+        extra = "；R2 / B2 还需 Endpoint" if target in ("r2", "b2") else ""
+        return f"请先配置对象存储（Bucket、Access Key、Secret Key、公网基址{extra}），{label} 当前走 {kind}"
     return f"请先配置图床，{label} 图片要先上传再发主站"
 
 
@@ -203,6 +265,17 @@ def _sftp_remote_spec(settings: MangaSettings, rel_dir: str) -> str:
     return folder
 
 
+def _object_key(settings: MangaSettings, rel_dir: str, filename: str) -> str:
+    prefix = _clean_dir(settings.s3_prefix or "manga")
+    name = Path(filename).name
+    return "/".join(part for part in (prefix, _clean_dir(rel_dir), name) if part)
+
+
+def _object_content_type(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    return _OBJECT_CONTENT_TYPES.get(suffix, "image/jpeg")
+
+
 def _ensure_ftp_dir(ftp: FTP, path: str, *, absolute: bool = False) -> None:
     parts = [item for item in path.split("/") if item]
     if absolute:
@@ -265,6 +338,7 @@ class MediaStore:
         self._ssh: Any | None = None
         self._sftp: Any | None = None
         self._sftp_folder: str | None = None
+        self._s3: Any | None = None
 
     def _close_ftp(self) -> None:
         ftp = self._ftp
@@ -302,6 +376,7 @@ class MediaStore:
         await self.imgbed.aclose()
         self._close_ftp()
         self._close_sftp()
+        self._s3 = None
 
     def target(self) -> str:
         return upload_target_for(self.settings, self.source)
@@ -404,6 +479,10 @@ class MediaStore:
                     url = await asyncio.to_thread(
                         self._sftp_put, processed, name, album.rel_dir
                     )
+                elif target in OBJECT_TARGETS:
+                    url = await asyncio.to_thread(
+                        self._object_put, processed, name, album.rel_dir, target
+                    )
                 else:
                     raise MediaStoreError(f"未知上传目标 {target}")
             except MediaStoreError:
@@ -411,6 +490,7 @@ class MediaStore:
             except Exception as exc:
                 self._close_ftp()
                 self._close_sftp()
+                self._s3 = None
                 raise MediaStoreError(str(exc)) from exc
             album.next_index += 1
             key = (group_key or "").strip()
@@ -542,3 +622,59 @@ class MediaStore:
             raise MediaStoreError(f"SFTP 上传失败：{exc}") from exc
         public_rel = "/".join(part for part in (_clean_dir(rel_dir), name) if part)
         return _join_public(self.settings.sftp_public_base, public_rel)
+
+    def _ensure_s3(self, target: str) -> Any:
+        if self._s3 is not None:
+            return self._s3
+        if not object_configured(self.settings):
+            raise MediaStoreError("对象存储未配置完整（Bucket、Access Key、Secret Key、公网基址）")
+        endpoint = object_endpoint(self.settings)
+        if target in ("r2", "b2") and not endpoint:
+            raise MediaStoreError("R2 / B2 需要填写 Endpoint")
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+
+            from backend.utils.outbound import botocore_config_with_proxy
+        except ImportError as exc:
+            raise MediaStoreError("未安装 boto3，无法使用对象存储") from exc
+        region = object_region(self.settings, target)
+        addressing = object_addressing(endpoint, target)
+        kwargs: dict[str, Any] = {
+            "region_name": region,
+            "aws_access_key_id": (self.settings.s3_access_key or "").strip(),
+            "aws_secret_access_key": self.settings.s3_secret_key or "",
+            "config": botocore_config_with_proxy(
+                BotoConfig(
+                    retries={"max_attempts": 3, "mode": "standard"},
+                    s3={"addressing_style": addressing},
+                    request_checksum_calculation="when_required",
+                    response_checksum_validation="when_required",
+                ),
+                endpoint_url=endpoint or None,
+            ),
+        }
+        if endpoint:
+            kwargs["endpoint_url"] = endpoint
+        self._s3 = boto3.client("s3", **kwargs)
+        return self._s3
+
+    def _object_put(self, data: bytes, filename: str, rel_dir: str, target: str) -> str:
+        try:
+            client = self._ensure_s3(target)
+            name = Path(filename).name
+            key = _object_key(self.settings, rel_dir, name)
+            client.put_object(
+                Bucket=(self.settings.s3_bucket or "").strip(),
+                Key=key,
+                Body=data,
+                ContentType=_object_content_type(name),
+                CacheControl="public, max-age=31536000, immutable",
+            )
+        except MediaStoreError:
+            raise
+        except Exception as exc:
+            self._s3 = None
+            raise MediaStoreError(f"对象存储上传失败：{exc}") from exc
+        public_rel = "/".join(part for part in (_clean_dir(rel_dir), name) if part)
+        return _join_public(self.settings.s3_public_base, public_rel)
