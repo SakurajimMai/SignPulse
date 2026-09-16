@@ -358,7 +358,7 @@ class GamesAutomationService:
         self.state["last_scan_at"] = utc_now_iso_z()
         self.state["last_error"] = None
         await self._reconcile_processing(settings)
-        for channel in settings.source_channel_list:
+        for channel in settings.listen_channel_list:
             try:
                 await self._scan_channel(settings, channel)
             except asyncio.CancelledError:

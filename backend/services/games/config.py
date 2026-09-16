@@ -143,6 +143,7 @@ class GamesSettings:
     wp_status: str = "publish"
     telegram_account_name: str = ""
     telegram_source_channels: str = "Zhzbzx"
+    telegram_listen_channels: str = "Zhzbzx"
     telegram_publish_enabled: bool = False
     telegram_catalog_channel: str = ""
     telegram_files_channel: str = ""
@@ -217,6 +218,9 @@ class GamesSettings:
             ),
             telegram_source_channels=_env("GAMES_TELEGRAM_CHANNELS", default="Zhzbzx")
             or "Zhzbzx",
+            telegram_listen_channels=_env("GAMES_TELEGRAM_LISTEN_CHANNELS")
+            or _env("GAMES_TELEGRAM_CHANNELS", default="Zhzbzx")
+            or "Zhzbzx",
             telegram_publish_enabled=_bool("GAMES_TELEGRAM_PUBLISH_ENABLED", False),
             telegram_catalog_channel=_env("GAMES_TELEGRAM_CATALOG_CHANNEL"),
             telegram_files_channel=_env("GAMES_TELEGRAM_FILES_CHANNEL"),
@@ -289,11 +293,31 @@ class GamesSettings:
         return split_csv(self.telegram_source_channels)
 
     @property
+    def listen_channel_list(self) -> list[str]:
+        allowed = {item.casefold() for item in split_csv(self.telegram_listen_channels)}
+        return [name for name in self.source_channel_list if name.casefold() in allowed]
+
+    @property
     def ad_keyword_list(self) -> list[str]:
         return split_csv(self.ad_keywords)
 
     def ensure_dirs(self) -> None:
         Path(self.data_dir).mkdir(parents=True, exist_ok=True)
+
+
+def _normalize_channel_names(raw: str) -> list[str]:
+    from backend.services.games.telegram_publish import normalize_channel_ref
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for item in split_csv(raw):
+        name = normalize_channel_ref(item)[:80]
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        names.append(name)
+    return names
 
 
 def split_csv(raw: str | None) -> list[str]:
@@ -367,7 +391,8 @@ def _load_saved() -> dict[str, Any]:
 
 def load_games_settings() -> GamesSettings:
     values = asdict(GamesSettings.from_environment())
-    for name, value in _load_saved().items():
+    saved = _load_saved()
+    for name, value in saved.items():
         if name not in values:
             continue
         if name in NULLABLE_FLOAT_FIELDS:
@@ -375,6 +400,8 @@ def load_games_settings() -> GamesSettings:
             continue
         if value is not None:
             values[name] = value
+    if "telegram_listen_channels" not in saved:
+        values["telegram_listen_channels"] = values.get("telegram_source_channels") or ""
     values["data_dir"] = str(_base_dir())
     values["split_volume_mb"] = normalize_split_volume_mb(values.get("split_volume_mb"))
     values["telegram_split_volume_mb"] = normalize_telegram_split_volume_mb(
@@ -467,10 +494,19 @@ def save_games_settings(updates: dict[str, Any]) -> GamesSettings:
             )
             or DEFAULT_CATEGORIES
         )
-    if "telegram_source_channels" in clean:
-        clean["telegram_source_channels"] = ",".join(
-            split_csv(str(clean["telegram_source_channels"]))
+    if "telegram_source_channels" in clean or "telegram_listen_channels" in clean:
+        sources = _normalize_channel_names(
+            str(clean.get("telegram_source_channels", current.telegram_source_channels))
         )
+        listen = _normalize_channel_names(
+            str(clean.get("telegram_listen_channels", current.telegram_listen_channels))
+        )
+        allowed = {item.casefold() for item in sources}
+        listen = [name for name in listen if name.casefold() in allowed]
+        if "telegram_source_channels" in clean:
+            clean["telegram_source_channels"] = ",".join(sources)
+        if "telegram_listen_channels" in clean or "telegram_source_channels" in clean:
+            clean["telegram_listen_channels"] = ",".join(listen)
     for key in ("telegram_catalog_channel", "telegram_files_channel"):
         if key in clean:
             from backend.services.games.telegram_publish import normalize_channel_ref

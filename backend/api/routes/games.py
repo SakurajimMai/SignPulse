@@ -71,7 +71,8 @@ class GamesSettingsRequest(BaseModel):
     wp_apate_url: str | None = Field(default=None, max_length=500)
     wp_status: str | None = Field(default=None, max_length=20)
     telegram_account_name: str | None = Field(default=None, max_length=80)
-    telegram_source_channels: str | None = Field(default=None, max_length=1000)
+    telegram_source_channels: str | None = Field(default=None, max_length=2000)
+    telegram_listen_channels: str | None = Field(default=None, max_length=2000)
     telegram_publish_enabled: bool | None = None
     telegram_catalog_channel: str | None = Field(default=None, max_length=80)
     telegram_files_channel: str | None = Field(default=None, max_length=80)

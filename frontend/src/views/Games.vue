@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { CheckCircle2, LoaderCircle, Radio, RefreshCw, Sparkles, XCircle } from 'lucide-vue-next'
+import { CheckCircle2, LoaderCircle, Plus, Radio, RefreshCw, Sparkles, X, XCircle } from 'lucide-vue-next'
 import {
   getGamesSettings,
   getGamesStatus,
@@ -20,6 +20,7 @@ import { useI18n } from '../composables/useI18n'
 import { useToast } from '../composables/useToast'
 import { useAccountsStore } from '../stores/accounts'
 import { useSecretReveal } from '../composables/useSecretReveal'
+import { parseTelegramChannelRef } from '../lib/telegram-post-url'
 import GamesPanel from '../components/games/GamesPanel.vue'
 import SecretInput from '../components/SecretInput.vue'
 
@@ -117,6 +118,68 @@ const update = <K extends keyof GamesSettings>(key: K, next: GamesSettings[K]) =
   settings.value = { ...settings.value, [key]: next }
 }
 
+const channelDraft = ref('')
+const sourceChannels = computed(() =>
+  (settings.value?.telegram_source_channels || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean),
+)
+const listenChannels = computed(() => {
+  const raw = settings.value?.telegram_listen_channels
+  const text = raw == null ? settings.value?.telegram_source_channels || '' : raw
+  return text
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+})
+
+const isChannelListening = (channel: string) =>
+  listenChannels.value.some((item) => item.toLowerCase() === channel.toLowerCase())
+
+const addSourceChannel = () => {
+  const name = parseTelegramChannelRef(channelDraft.value)
+  if (!name) {
+    toast.error(t('games.telegramChannelInvalid'))
+    return
+  }
+  const exists = sourceChannels.value.some((item) => item.toLowerCase() === name.toLowerCase())
+  if (!exists) {
+    update('telegram_source_channels', [...sourceChannels.value, name].join(','))
+  }
+  if (!isChannelListening(name)) {
+    update('telegram_listen_channels', [...listenChannels.value, name].join(','))
+  }
+  channelDraft.value = ''
+}
+
+const removeSourceChannel = (index: number) => {
+  const removed = sourceChannels.value[index]
+  const next = sourceChannels.value.filter((_, i) => i !== index)
+  update('telegram_source_channels', next.join(','))
+  if (removed) {
+    update(
+      'telegram_listen_channels',
+      listenChannels.value
+        .filter((item) => item.toLowerCase() !== removed.toLowerCase())
+        .join(','),
+    )
+  }
+}
+
+const toggleChannelListen = (channel: string) => {
+  if (isChannelListening(channel)) {
+    update(
+      'telegram_listen_channels',
+      listenChannels.value
+        .filter((item) => item.toLowerCase() !== channel.toLowerCase())
+        .join(','),
+    )
+    return
+  }
+  update('telegram_listen_channels', [...listenChannels.value, channel].join(','))
+}
+
 const parseOptionalAmount = (raw: string): number | null => {
   const text = raw.trim()
   if (!text) return null
@@ -146,6 +209,10 @@ const saveSettings = async () => {
       wp_status: settings.value.wp_status || 'publish',
       telegram_account_name: settings.value.telegram_account_name || '',
       telegram_source_channels: settings.value.telegram_source_channels || '',
+      telegram_listen_channels:
+        settings.value.telegram_listen_channels ??
+        settings.value.telegram_source_channels ??
+        '',
       telegram_publish_enabled: Boolean(settings.value.telegram_publish_enabled),
       telegram_catalog_channel: settings.value.telegram_catalog_channel || '',
       telegram_files_channel: settings.value.telegram_files_channel || '',
@@ -397,12 +464,45 @@ onUnmounted(() => {
           <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div class="space-y-1 md:col-span-2">
               <label class="ui-label">{{ t('games.telegramChannels') }}</label>
-              <input
-                :value="settings.telegram_source_channels"
-                class="ui-input"
-                placeholder="@Zhzbzx"
-                @input="update('telegram_source_channels', ($event.target as HTMLInputElement).value)"
-              >
+              <div class="flex flex-wrap gap-1.5 min-h-8">
+                <span
+                  v-for="(channel, index) in sourceChannels"
+                  :key="channel"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded-sm text-xs border border-[var(--sp-border)] bg-gray-50 dark:bg-gray-800/60 text-gray-800 dark:text-gray-200"
+                >
+                  <label class="inline-flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      class="rounded border-gray-300"
+                      :checked="isChannelListening(channel)"
+                      :title="t('games.telegramChannelListen')"
+                      @change="toggleChannelListen(channel)"
+                    >
+                    {{ channel }}
+                  </label>
+                  <button
+                    type="button"
+                    class="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                    :aria-label="t('games.telegramChannelRemove')"
+                    @click="removeSourceChannel(index)"
+                  >
+                    <X class="w-3 h-3" />
+                  </button>
+                </span>
+              </div>
+              <div class="flex gap-2">
+                <input
+                  v-model="channelDraft"
+                  class="ui-input min-w-0 flex-1"
+                  :placeholder="t('games.telegramChannelsPlaceholder')"
+                  @keydown.enter.prevent="addSourceChannel"
+                >
+                <button type="button" class="ui-btn-secondary shrink-0" @click="addSourceChannel">
+                  <Plus class="w-3.5 h-3.5" />
+                  {{ t('games.telegramChannelAdd') }}
+                </button>
+              </div>
+              <p class="text-[10px] text-gray-500">{{ t('games.telegramChannelsHint') }}</p>
             </div>
             <div class="space-y-1">
               <label class="ui-label">{{ t('games.telegramPollSeconds') }}</label>

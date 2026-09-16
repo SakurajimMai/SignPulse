@@ -27,6 +27,7 @@ export interface GamesSettings {
   wp_status: string
   telegram_account_name?: string
   telegram_source_channels?: string
+  telegram_listen_channels?: string
   telegram_publish_enabled?: boolean
   telegram_catalog_channel?: string
   telegram_files_channel?: string
