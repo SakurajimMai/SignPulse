@@ -883,7 +883,7 @@
     "idleSeconds": "章节空闲聚合秒数（讨论帖同一话会再等更久，避免上传慢采不全）",
     "maxPages": "单话最大页数（1–10000，长篇 IF 线建议 2000）",
     "deliveryTitle": "图片上传与主站发布",
-    "uploadHint": "每个采集源可以走图床、FTP、SFTP 或对象存储（Amazon S3 / Cloudflare R2 / Backblaze B2）。远程路径是 {目录}/2026/09/13/{uuid}/001.jpg：中间三层是第一次开采当天的年、月、日；隔夜续传仍进这个目录。",
+    "uploadHint": "每个采集源可以走图床、FTP、SFTP 或对象存储（Amazon S3 / Cloudflare R2 / Backblaze B2）。远程路径是 前缀/年/月/日/随机编号/001.jpg：中间三层是第一次开采当天的年、月、日；隔夜续传仍进这个目录。",
     "uploadTelegram": "频道采集上传到",
     "uploadEhentai": "E-Hentai 上传到",
     "uploadWnacg": "WNACG 上传到",

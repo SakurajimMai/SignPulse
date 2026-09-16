@@ -883,7 +883,7 @@
     "idleSeconds": "Chapter idle window (seconds; discussion threads wait longer so slow uploads stay in one chapter)",
     "maxPages": "Maximum pages per chapter (1–10000; use 2000 for long IF-style chapters)",
     "deliveryTitle": "Image upload and site publishing",
-    "uploadHint": "Each ingest source can go to the image host, FTP, SFTP, or object storage (Amazon S3 / Cloudflare R2 / Backblaze B2). Remote path is {dir}/2026/09/13/{uuid}/001.jpg — year/month/day from the first ingest; overnight continuation stays in that folder.",
+    "uploadHint": "Each ingest source can go to the image host, FTP, SFTP, or object storage (Amazon S3 / Cloudflare R2 / Backblaze B2). Remote path is prefix/year/month/day/id/001.jpg — year/month/day from the first ingest; overnight continuation stays in that folder.",
     "uploadTelegram": "Channel ingest uploads to",
     "uploadEhentai": "E-Hentai uploads to",
     "uploadWnacg": "WNACG uploads to",
