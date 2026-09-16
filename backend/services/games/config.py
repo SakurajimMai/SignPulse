@@ -311,12 +311,14 @@ def _normalize_channel_names(raw: str) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
     for item in split_csv(raw):
-        name = normalize_channel_ref(item)[:80]
-        key = name.casefold()
-        if not name or key in seen:
+        text = item.strip()
+        if "t.me/" in text.casefold() or "telegram.me/" in text.casefold():
+            text = normalize_channel_ref(text)
+        text = text[:80]
+        if not text or text in seen:
             continue
-        seen.add(key)
-        names.append(name)
+        seen.add(text)
+        names.append(text)
     return names
 
 
