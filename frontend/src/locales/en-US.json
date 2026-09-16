@@ -1557,7 +1557,7 @@
     "telegramPublishEnabled": "Publish to your Telegram channels",
     "telegramPublishHint": "After extract/repack, files go to the files channel and an intro post with download links is sent to the catalog channel. The site paid section gets a Telegram link. Netdisk uploads stay optional. Only parts larger than the channel volume size below are re-split for Telegram. The ingest account must admin both public channels.",
     "telegramCatalogChannel": "Catalog channel (public username)",
-    "telegramCatalogPlaceholder": "MyGames or @MyGames",
+    "telegramCatalogPlaceholder": "MyGames or {'@'}MyGames",
     "telegramFilesChannel": "Files channel (empty = catalog channel)",
     "telegramFilesPlaceholder": "MyGamesFiles",
     "telegramSplitVolumeMb": "Channel volume size (MiB)",
