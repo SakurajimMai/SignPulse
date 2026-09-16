@@ -180,10 +180,20 @@ def extract_game_archive(
     last_error: Exception | None = None
     for password in tries:
         try:
+            suffix = source.suffix.casefold()
             if binary:
-                _extract_with_7z(source, dest, password, binary)
+                try:
+                    _extract_with_7z(source, dest, password, binary)
+                except ArchiveError as exc:
+                    blob = str(exc).casefold()
+                    if "unsupported method" in blob and suffix in {".zip", ".7z"}:
+                        if dest.exists():
+                            shutil.rmtree(dest, ignore_errors=True)
+                            dest.mkdir(parents=True, exist_ok=True)
+                        hmw_extract(source, dest, password)
+                    else:
+                        raise
             else:
-                suffix = source.suffix.casefold()
                 if suffix not in {".zip", ".7z"}:
                     raise ArchiveError("未安装 7z，仅能解压 zip / 7z")
                 hmw_extract(source, dest, password)
