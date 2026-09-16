@@ -26,7 +26,12 @@ export function useI18n() {
 
   // 包装 vue-i18n 的 t 函数，支持嵌套 key 与命名插值
   function t(key: string, named?: Record<string, unknown>): string {
-    return named ? String(vueT(key, named)) : String(vueT(key))
+    try {
+      return named ? String(vueT(key, named)) : String(vueT(key))
+    } catch (error) {
+      console.warn('[i18n]', key, error)
+      return key
+    }
   }
 
   return { locale: legacyLocale, toggleLanguage, t }

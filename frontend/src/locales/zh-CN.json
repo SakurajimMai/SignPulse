@@ -1557,7 +1557,7 @@
     "telegramPublishEnabled": "发布到自建 Telegram 频道",
     "telegramPublishHint": "解压重打包后把文件发到文件频道，再在介绍频道发一条带下载链接的帖。网站付费区会多一条 Telegram 链接。网盘勾选不受影响。超过下方「频道分卷」大小时才会另打一份给 Telegram，网盘分卷不变。采集号需是这两个公开频道的管理员。",
     "telegramCatalogChannel": "介绍频道（公开用户名）",
-    "telegramCatalogPlaceholder": "MyGames 或 {'@'}MyGames",
+    "telegramCatalogPlaceholder": "公开用户名，例如 MyGames",
     "telegramFilesChannel": "文件频道（可留空=介绍频道）",
     "telegramFilesPlaceholder": "MyGamesFiles",
     "telegramSplitVolumeMb": "频道分卷大小（MiB）",

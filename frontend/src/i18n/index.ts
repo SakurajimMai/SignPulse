@@ -10,6 +10,9 @@ const i18n = createI18n({
   legacy: false, // 使用 Composition API 模式
   locale: savedLocale === 'en' ? 'en-US' : 'zh-CN',
   fallbackLocale: 'zh-CN',
+  missingWarn: false,
+  fallbackWarn: false,
+  warnHtmlMessage: false,
   messages: {
     'zh-CN': zhCN,
     'en-US': enUS,
