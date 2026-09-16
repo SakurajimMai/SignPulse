@@ -158,6 +158,8 @@ const saveSettings = async () => {
       pack_password: settings.value.pack_password || '',
       split_volume_mb: Number(settings.value.split_volume_mb || 4096),
       ad_keywords: settings.value.ad_keywords || '',
+      ad_keywords_regex: Boolean(settings.value.ad_keywords_regex),
+      ad_strip_subdirs: settings.value.ad_strip_subdirs !== false,
       apate_enabled: Boolean(settings.value.apate_enabled),
       apate_bin: settings.value.apate_bin || 'apate',
       baidu_enabled: Boolean(settings.value.baidu_enabled),
@@ -717,7 +719,36 @@ onUnmounted(() => {
               @input="update('split_volume_mb', Number(($event.target as HTMLInputElement).value) || 4096)"
             >
           </div>
-          <div class="space-y-1 md:col-span-2"><label class="ui-label">{{ t('games.adKeywords') }}</label><input :value="settings.ad_keywords" class="ui-input" @input="update('ad_keywords', ($event.target as HTMLInputElement).value)"></div>
+          <div class="space-y-1 md:col-span-2">
+            <label class="ui-label">{{ t('games.adKeywords') }}</label>
+            <textarea
+              :value="settings.ad_keywords"
+              class="ui-input min-h-[4.5rem]"
+              :placeholder="t('games.adKeywordsPlaceholder')"
+              @input="update('ad_keywords', ($event.target as HTMLTextAreaElement).value)"
+            ></textarea>
+            <p class="text-[10px] text-gray-500">{{ t('games.adKeywordsHint') }}</p>
+            <div class="flex flex-wrap gap-4 pt-1">
+              <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="rounded border-gray-300"
+                  :checked="Boolean(settings.ad_keywords_regex)"
+                  @change="update('ad_keywords_regex', ($event.target as HTMLInputElement).checked)"
+                >
+                {{ t('games.adKeywordsRegex') }}
+              </label>
+              <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  class="rounded border-gray-300"
+                  :checked="settings.ad_strip_subdirs !== false"
+                  @change="update('ad_strip_subdirs', ($event.target as HTMLInputElement).checked)"
+                >
+                {{ t('games.adStripSubdirs') }}
+              </label>
+            </div>
+          </div>
           <div class="space-y-1"><label class="ui-label">{{ t('games.apateBin') }}</label><input :value="settings.apate_bin" class="ui-input" @input="update('apate_bin', ($event.target as HTMLInputElement).value)"></div>
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input type="checkbox" class="rounded border-gray-300" :checked="settings.apate_enabled" @change="update('apate_enabled', ($event.target as HTMLInputElement).checked)">

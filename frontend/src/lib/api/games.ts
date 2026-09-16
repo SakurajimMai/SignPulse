@@ -41,6 +41,8 @@ export interface GamesSettings {
   pack_password_set?: boolean
   split_volume_mb?: number
   ad_keywords: string
+  ad_keywords_regex?: boolean
+  ad_strip_subdirs?: boolean
   apate_enabled: boolean
   apate_bin: string
   baidu_enabled?: boolean

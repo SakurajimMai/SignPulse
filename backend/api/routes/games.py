@@ -83,7 +83,9 @@ class GamesSettingsRequest(BaseModel):
     extract_passwords: str | None = Field(default=None, max_length=400)
     pack_password: str | None = Field(default=None, max_length=120)
     split_volume_mb: int | None = Field(default=None, ge=256, le=4096)
-    ad_keywords: str | None = Field(default=None, max_length=2000)
+    ad_keywords: str | None = Field(default=None, max_length=4000)
+    ad_keywords_regex: bool | None = None
+    ad_strip_subdirs: bool | None = None
     apate_enabled: bool | None = None
     apate_bin: str | None = Field(default=None, max_length=400)
     baidu_enabled: bool | None = None

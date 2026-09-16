@@ -5,8 +5,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from backend.services.games.parser import ParsedGame, clean_game_summary, split_tags
-from backend.services.manga.hmw.telegram_link import safe_folder_name
+from backend.services.games.parser import (
+    ParsedGame,
+    clean_game_summary,
+    sanitize_game_title,
+    split_tags,
+)
 
 from .client import ai_available
 from .tasks import TASK_GAMES_REFINE, TASK_MANGA_REFINE, run_json_task
@@ -31,11 +35,11 @@ def _string_list(raw: Any, *, limit: int) -> list[str]:
         return []
     values: list[str] = []
     for item in raw:
-        text = str(item or "").strip()[:40]
-        if text and text not in values:
-            values.append(text)
-        if len(values) >= limit:
-            break
+        for tag in split_tags(str(item or "")):
+            if tag not in values:
+                values.append(tag)
+            if len(values) >= limit:
+                return values
     return values
 
 
@@ -80,7 +84,9 @@ async def refine_game_caption(
     reason = str(payload.get("skip_reason") or "").strip()[:200]
     title = str(payload.get("title") or "").strip()
     if title:
-        parsed.title = safe_folder_name(title, fallback=parsed.title or "未命名游戏")[:160]
+        parsed.title = sanitize_game_title(
+            title, fallback=parsed.title or "未命名游戏"
+        )
     summary = clean_game_summary(str(payload.get("summary") or ""))
     if summary:
         parsed.summary = summary[:8000]

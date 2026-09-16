@@ -49,6 +49,8 @@ IMAGE_MIMES = {
 DOWNLOAD_MARKERS = (
     "下载",
     "下載",
+    "tg下载",
+    "tg下載",
     "通常版本",
     "ntr版本",
     "pc版本",

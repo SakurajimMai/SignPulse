@@ -5,15 +5,16 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.services.manga.hmw.telegram_link import safe_folder_name
-
 _URL = re.compile(r"https?://[^\s<>\[\]（）()]+", re.I)
 _LABEL = re.compile(
     r"^\s*(?:【(?P<bracket>[^】]+)】)?\s*"
-    r"(?P<key>游戏名称|游戏名|名称|标题|title|类型|标签|genre|分类|分類|"
-    r"简介|介紹|介绍|概要|游戏概要|概述|品牌|厂商|会社|"
+    r"(?P<key>游戏名称|游戏名|游戏title|游戏标题|名称|标题|title|"
+    r"类型|标签|genre|分类|分類|"
+    r"简介|介紹|介绍|游戏简介|概要|游戏概要|概述|"
+    r"品牌|厂商|会社|社团名|"
     r"解压密码|解壓密碼|密码|密碼|提取码|提取碼|password|"
-    r"语言|語言|平台|格式)"
+    r"语言|語言|平台|格式|文件格式|文件容量|文件大小|容量|"
+    r"发售日|发行日|版本)"
     r"\s*[:：]?\s*(?P<value>.*)\s*$",
     re.I,
 )
@@ -22,7 +23,11 @@ _JUNK_PREFIX = re.compile(
     r"^[\s\-—–·•\*#【\[\(（🔄❗⚠️⭐🌟✨🤍🤩〰️▎❗️❤💕🎀📥⬇️📍➗※★☆🍀]+"
 )
 _JUNK_LINE = re.compile(
-    r"(?:入正地址|下载地址|下載地址|通常版本|ntr版本)",
+    r"(?:入正地址|下载地址|下載地址|通常版本|ntr版本|"
+    r"文件容量|文件大小|文件格式|"
+    r"语言\s*[:：]|語言\s*[:：]|"
+    r"tg\s*下载|tg\s*下載|"
+    r"领取优惠|点此入正|點此入正)",
     re.I,
 )
 _PROMO_LINE = re.compile(
@@ -34,6 +39,43 @@ _PROMO_LINE = re.compile(
     r"(?:^|[\s\(\[（【❗️!！])ps\s*[:：])",
     re.I,
 )
+_INTRO_KEYS = {
+    "简介",
+    "介紹",
+    "介绍",
+    "游戏简介",
+    "概要",
+    "游戏概要",
+    "概述",
+}
+_SKIP_TAG_KEYS = {
+    "语言",
+    "語言",
+    "格式",
+    "文件格式",
+    "文件容量",
+    "文件大小",
+    "容量",
+}
+_SKIP_TAGS = {
+    "中文",
+    "英文",
+    "日文",
+    "俄语",
+    "俄語",
+    "繁中",
+    "简中",
+    "chinese",
+    "english",
+    "japanese",
+    "russian",
+    "7z",
+    "7z-zstd",
+    "zstd",
+    "apk",
+    "zip",
+    "rar",
+}
 _HASHTAG_ONLY = re.compile(r"^(?:#[^\s#]+\s*)+$")
 _BRACKET_TITLE = re.compile(r"^【(?P<tag>[^】]+)】\s*(?P<title>.+)$")
 _TITLE_DECORATION = re.compile(
@@ -112,8 +154,12 @@ def _uniq(items: list[str]) -> list[str]:
 
 
 def split_tags(raw: str) -> list[str]:
-    parts = [item.strip() for item in _TAG_SPLIT.split(str(raw or "")) if item.strip()]
-    return [item[:40] for item in _uniq(parts)][:12]
+    parts: list[str] = []
+    for item in _TAG_SPLIT.split(str(raw or "")):
+        value = item.strip().lstrip("#").strip()
+        if value and value.casefold() not in _SKIP_TAGS:
+            parts.append(value[:40])
+    return _uniq(parts)[:12]
 
 
 def suggest_categories(blob: str) -> list[int]:
@@ -135,6 +181,14 @@ def suggest_categories(blob: str) -> list[int]:
 
 def _strip_urls(text: str) -> str:
     return _URL.sub("", text).strip()
+
+
+def sanitize_game_title(raw: str, fallback: str = "未命名游戏") -> str:
+    """展示标题只清控制符和首尾装饰，保留 / 等分隔。"""
+    text = _TITLE_DECORATION.sub("", _strip_urls(raw or "")).strip()
+    text = re.sub(r"[\x00-\x1f]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return (text or fallback)[:160]
 
 
 def parse_game_caption(text: str | None) -> ParsedGame:
@@ -166,7 +220,7 @@ def parse_game_caption(text: str | None) -> ParsedGame:
                 first_title = bracket
             if value:
                 fields[key] = value
-            else:
+            elif key not in _INTRO_KEYS:
                 body_lines.append(unlabeled or key)
             continue
         bracketed = _BRACKET_TITLE.match(stripped)
@@ -185,16 +239,21 @@ def parse_game_caption(text: str | None) -> ParsedGame:
     title = (
         fields.get("游戏名称")
         or fields.get("游戏名")
+        or fields.get("游戏title")
+        or fields.get("游戏标题")
         or fields.get("名称")
         or fields.get("标题")
         or fields.get("title")
         or first_title
     )
-    clean_title = _TITLE_DECORATION.sub("", _strip_urls(title or "")).strip()
-    parsed.title = safe_folder_name(clean_title, fallback="未命名游戏")[:160]
+    parsed.title = sanitize_game_title(title or "")
     parsed.studio = (
-        fields.get("品牌") or fields.get("厂商") or fields.get("会社") or ""
-    ).strip()
+        fields.get("品牌")
+        or fields.get("厂商")
+        or fields.get("会社")
+        or fields.get("社团名")
+        or ""
+    ).strip().lstrip("#")
     if not parsed.studio:
         studio_match = _STUDIO_IN_TEXT.search(raw)
         if studio_match:
@@ -210,23 +269,30 @@ def parse_game_caption(text: str | None) -> ParsedGame:
         or ""
     ).strip()
 
-    parsed.tags = _uniq(
-        [
-            *parsed.tags,
-            *split_tags(
-                fields.get("类型")
-                or fields.get("标签")
-                or fields.get("genre")
-                or fields.get("分类")
-                or fields.get("分類")
-                or ""
-            ),
-            *(tag.strip(".,，。;；")[:40] for tag in _HASHTAG.findall(raw)),
-        ]
-    )[:12]
+    field_tags: list[str] = []
+    for key in ("类型", "标签", "genre", "分类", "分類"):
+        field_tags.extend(split_tags(fields.get(key) or ""))
+    line_tags: list[str] = []
+    for line in raw.split("\n"):
+        unlabeled = _clean_line(line)
+        match = _LABEL.match(line.strip()) or _LABEL.match(unlabeled)
+        if match and match.group("key").casefold() in _SKIP_TAG_KEYS:
+            continue
+        if _JUNK_LINE.search(line) or _JUNK_LINE.search(unlabeled):
+            continue
+        if _PROMO_LINE.search(line) or _PROMO_LINE.search(unlabeled):
+            continue
+        line_tags.extend(
+            tag.strip(".,，。;；").lstrip("#")[:40] for tag in _HASHTAG.findall(line)
+        )
+    parsed.tags = [
+        tag
+        for tag in _uniq([*parsed.tags, *field_tags, *line_tags])
+        if tag.casefold() not in _SKIP_TAGS
+    ][:12]
 
     summary_bits: list[str] = []
-    for key in ("简介", "介紹", "介绍", "概要", "游戏概要", "概述"):
+    for key in ("简介", "介紹", "介绍", "游戏简介", "概要", "游戏概要", "概述"):
         if fields.get(key):
             summary_bits.append(fields[key])
     leftover = "\n".join(body_lines).strip()

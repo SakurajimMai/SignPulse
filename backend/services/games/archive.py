@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from backend.services.manga.hmw.archive import ArchiveError
 from backend.services.manga.hmw.archive import extract_archive as hmw_extract
@@ -14,6 +16,8 @@ from .paths import ARCHIVE_SUFFIXES
 logger = logging.getLogger("backend.games.archive")
 
 SKIP_FILES = {"desktop.ini", "thumbs.db", ".ds_store", "__macosx"}
+# 始终过滤；自定义关键词/正则之外再保一层频道说明。
+AD_NAME_MARKERS = ("资源说明", "(必读)", "必读.txt", "必讀")
 
 
 def find_7z_bin() -> str | None:
@@ -44,49 +48,89 @@ def password_candidates(*groups: str | list[str] | None) -> list[str]:
     return values
 
 
-def is_ad_entry(name: str, keywords: list[str]) -> bool:
-    raw = str(name or "").strip()
+def compile_ad_matchers(keywords: list[str], *, use_regex: bool = False) -> list[Any]:
+    matchers: list[Any] = []
+    for keyword in keywords:
+        token = str(keyword or "").strip()
+        if not token:
+            continue
+        if use_regex:
+            try:
+                matchers.append(("re", re.compile(token, re.I)))
+            except re.error:
+                logger.warning("无效的广告过滤正则，已跳过: %s", token)
+            continue
+        if len(token) < 2:
+            continue
+        matchers.append(("sub", token.casefold()))
+    return matchers
+
+
+def _matches_ad(name: str, matchers: list[Any]) -> bool:
+    raw = str(name or "").strip().replace("\\", "/")
     if not raw:
         return False
-    lowered = raw.casefold()
     base = Path(raw).name.casefold()
     if base in SKIP_FILES or base.endswith(".url"):
         return True
-    for keyword in keywords:
-        token = str(keyword or "").strip()
-        if len(token) < 2:
-            continue
-        if token.casefold() in lowered:
+    lowered = raw.casefold()
+    if any(marker in lowered for marker in AD_NAME_MARKERS):
+        return True
+    filename = Path(raw).name
+    for kind, spec in matchers:
+        if kind == "sub":
+            if spec in lowered or spec in filename.casefold():
+                return True
+        elif spec.search(raw) or spec.search(filename):
             return True
     return False
 
 
-def strip_ads(root: Path, keywords: list[str]) -> list[str]:
+def is_ad_entry(name: str, keywords: list[str], *, use_regex: bool = False) -> bool:
+    return _matches_ad(name, compile_ad_matchers(keywords, use_regex=use_regex))
+
+
+def _remove_ad_path(path: Path, root: Path, removed: list[str]) -> None:
+    rel = str(path.relative_to(root))
+    try:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        removed.append(rel)
+    except OSError:
+        logger.warning("无法删除广告项 %s", path)
+
+
+def strip_ads(
+    root: Path,
+    keywords: list[str],
+    *,
+    use_regex: bool = False,
+    include_subdirs: bool = True,
+) -> list[str]:
     removed: list[str] = []
     if not root.exists():
         return removed
-    # 先目录后文件，从深到浅
-    for dirpath, dirnames, filenames in os.walk(root, topdown=False):
-        current = Path(dirpath)
-        for filename in filenames:
-            path = current / filename
-            if is_ad_entry(filename, keywords) or is_ad_entry(
-                str(path.relative_to(root)), keywords
-            ):
-                try:
-                    path.unlink()
-                    removed.append(str(path.relative_to(root)))
-                except OSError:
-                    logger.warning("无法删除广告文件 %s", path)
-        for dirname in dirnames:
-            path = current / dirname
-            if is_ad_entry(dirname, keywords):
-                try:
-                    shutil.rmtree(path)
-                    removed.append(str(path.relative_to(root)))
-                except OSError:
-                    logger.warning("无法删除广告目录 %s", path)
-    # 清掉空目录
+    matchers = compile_ad_matchers(keywords, use_regex=use_regex)
+    if include_subdirs:
+        for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+            current = Path(dirpath)
+            for filename in filenames:
+                path = current / filename
+                rel = str(path.relative_to(root))
+                if _matches_ad(filename, matchers) or _matches_ad(rel, matchers):
+                    _remove_ad_path(path, root, removed)
+            for dirname in dirnames:
+                path = current / dirname
+                if _matches_ad(dirname, matchers) or _matches_ad(
+                    str(path.relative_to(root)), matchers
+                ):
+                    _remove_ad_path(path, root, removed)
+    else:
+        for path in list(root.iterdir()):
+            if _matches_ad(path.name, matchers):
+                _remove_ad_path(path, root, removed)
     for dirpath, _dirnames, _filenames in os.walk(root, topdown=False):
         current = Path(dirpath)
         if current != root and not any(current.iterdir()):

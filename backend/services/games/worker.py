@@ -1211,7 +1211,11 @@ class GamesJobRunner:
                 except OSError:
                     logger.warning("解压后未能删除源文件 %s", source)
             removed = await asyncio.to_thread(
-                strip_ads, extract_root, settings.ad_keyword_list
+                strip_ads,
+                extract_root,
+                settings.ad_keyword_list,
+                use_regex=bool(settings.ad_keywords_regex),
+                include_subdirs=bool(settings.ad_strip_subdirs),
             )
             job["extracted_dir"] = relative_to_games(settings, extract_root)
             job["removed_ads"] = removed

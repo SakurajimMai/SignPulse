@@ -36,7 +36,7 @@ DEFAULT_CATEGORIES = "640,637"
 DEFAULT_TAGS = "SLG"
 DEFAULT_AD_KEYWORDS = (
     "广告,advertisement,ads,www.,加群,推广,宣传,关注公众号,防失联,"
-    "破解说明,扫码,官网下载,点击下载"
+    "破解说明,扫码,官网下载,点击下载,资源说明,(必读)"
 )
 DEFAULT_EXTRACT_PASSWORDS = "sakuramai,ixacg.top"
 DEFAULT_APATE_GUIDE_URL = "https://www.ixacg.top/16403.html"
@@ -155,6 +155,8 @@ class GamesSettings:
     pack_password: str = "sakuramai"
     split_volume_mb: int = SPLIT_VOLUME_MB_DEFAULT
     ad_keywords: str = DEFAULT_AD_KEYWORDS
+    ad_keywords_regex: bool = False
+    ad_strip_subdirs: bool = True
     apate_enabled: bool = True
     apate_bin: str = "apate"
     baidu_enabled: bool = True
@@ -240,6 +242,8 @@ class GamesSettings:
             ),
             ad_keywords=_env("GAMES_AD_KEYWORDS", default=DEFAULT_AD_KEYWORDS)
             or DEFAULT_AD_KEYWORDS,
+            ad_keywords_regex=_bool("GAMES_AD_KEYWORDS_REGEX", False),
+            ad_strip_subdirs=_bool("GAMES_AD_STRIP_SUBDIRS", True),
             apate_enabled=_bool("GAMES_APATE_ENABLED", True),
             apate_bin=_env("GAMES_APATE_BIN", default="apate") or "apate",
             baidu_enabled=_bool("GAMES_BAIDU_ENABLED", True),
