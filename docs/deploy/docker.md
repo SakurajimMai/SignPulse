@@ -64,7 +64,7 @@ services:
       # MANGA_DATABASE_URL: mysql+asyncmy://user:pass@host:3306/tg_manga?charset=utf8mb4
       # APP_DATABASE_URL: postgresql+psycopg2://...
       # APP_MONITOR_SHARD: "0/2"
-    mem_limit: 768m
+    mem_limit: 2048m
     cpus: 1.0
     init: true
     read_only: true

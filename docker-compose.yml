@@ -9,7 +9,8 @@ services:
       - .env
     ports:
       - "8080:8080"
-    mem_limit: 768m
+    # 游戏 7z 打包大资源时 768m 会被 oom-killer 杀掉
+    mem_limit: 2048m
     cpus: 1.0
     volumes:
       # 宿主机必须用相对路径 ./data（相对本 compose 文件），禁止写成 /data
